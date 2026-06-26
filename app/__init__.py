@@ -1,0 +1,2 @@
+"""CRM Telegram bot package."""
+
