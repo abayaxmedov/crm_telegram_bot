@@ -18,6 +18,7 @@ Bot start vaqtida DB jadvallarini yaratadi va `89245245`, `6087841574` Telegram 
 - Yopiq kirish: begona user `/start` bossa javob qaytmaydi.
 - Invite token: owner yoki manager user yaratadi, link orqali Telegram ID bazaga biriktiriladi.
 - Role-based menu: owner, manager, operator, operator yordamchisi, vrach, apteka.
+- Ikki tilli interfeys: **Ўзбекча (кирилл)** va **Русский**. Har bir foydalanuvchi `/start` da yoki menyudagi `🌐 Тил / Язык` tugmasi (`/language`) orqali tilni tanlaydi; barcha xabar, tugma va rasm caption'lari tanlangan tilda chiqadi. Tanlov `users.language` ustunida saqlanadi.
 - Vrach/apteka kataloglari.
 - Yozma va voice kundalik hisobotlar.
 - Zayavka yaratish va status boshqarish.
@@ -27,7 +28,9 @@ Bot start vaqtida DB jadvallarini yaratadi va `89245245`, `6087841574` Telegram 
 
 ## Lokal assets
 
-Rasm va stickerlar `assets/photos` hamda `assets/stickers` ichida saqlanadi. Ularni qayta generatsiya qilish:
+Rasm va stickerlar har til uchun alohida papkada saqlanadi: `assets/photos/<lang>/` va
+`assets/stickers/<lang>/` (`lang` = `uz_cyrl` yoki `ru`). Zamonaviy, to'q korporativ uslub.
+Ularni qayta generatsiya qilish:
 
 ```bash
 python scripts/generate_assets.py

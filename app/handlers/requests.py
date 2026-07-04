@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import RequestStatus
 from app.db.repositories import add_request, list_requests, update_request_status
 from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
-from app.keyboards.reply import BTN_REQUESTS, request_status_keyboard, requests_menu
+from app.i18n import status_label, t, variants
+from app.keyboards.reply import request_status_keyboard, requests_menu
 from app.services.media import answer_media
 from app.services.security import can_change_request_status, can_manage_requests
-from app.texts import REQUESTS_TEXT
 
 router = Router(name="requests")
 
@@ -24,42 +24,42 @@ class RequestFlow(StatesGroup):
     description = State()
 
 
-@router.message(F.text == BTN_REQUESTS)
-async def requests_panel(message: Message, session: AsyncSession) -> None:
+@router.message(F.text.in_(variants("btn_requests")))
+async def requests_panel(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_manage_requests(user.role):
-        await message.answer("Zayavkalar bo'limi sizga ochilmagan.")
+        await message.answer(t(lang, "requests_closed"))
         return
-    await answer_media(message, screen="requests", text=REQUESTS_TEXT, reply_markup=requests_menu())
+    await answer_media(message, screen="requests", text=t(lang, "requests_text"), lang=lang, reply_markup=requests_menu(lang))
 
 
-@router.message(F.text == "➕ Zayavka yaratish")
-async def request_start(message: Message, session: AsyncSession, state: FSMContext) -> None:
+@router.message(F.text.in_(variants("btn_request_add")))
+async def request_start(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_manage_requests(user.role):
-        await message.answer("Zayavka yaratish uchun ruxsat yo'q.")
+        await message.answer(t(lang, "no_perm_request_add"))
         return
     await state.set_state(RequestFlow.title)
-    await message.answer("Zayavka sarlavhasini kiriting:")
+    await message.answer(t(lang, "enter_request_title"))
 
 
 @router.message(RequestFlow.title)
-async def request_title(message: Message, state: FSMContext) -> None:
+async def request_title(message: Message, state: FSMContext, lang: str) -> None:
     title = (message.text or "").strip()
     if len(title) < 3:
-        await message.answer("Sarlavha juda qisqa.")
+        await message.answer(t(lang, "title_too_short"))
         return
     await state.update_data(title=title)
     await state.set_state(RequestFlow.description)
-    await message.answer("Zayavka tavsifi. Agar kerak bo'lmasa `-` yuboring:")
+    await message.answer(t(lang, "enter_request_desc"))
 
 
 @router.message(RequestFlow.description)
-async def request_finish(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def request_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
@@ -75,38 +75,39 @@ async def request_finish(message: Message, session: AsyncSession, state: FSMCont
     await answer_media(
         message,
         screen="done",
-        text=f"<b>Zayavka yaratildi:</b> #{request.id} {escape(request.title)}",
-        reply_markup=requests_menu(),
+        text=t(lang, "request_created", id=request.id, title=escape(request.title)),
+        lang=lang,
+        reply_markup=requests_menu(lang),
     )
 
 
-@router.message(F.text == "📋 Zayavkalar")
-async def request_list(message: Message, session: AsyncSession) -> None:
+@router.message(F.text.in_(variants("btn_requests_list")))
+async def request_list(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     requests = await list_requests(session)
     if not requests:
-        await message.answer("Zayavkalar hali yo'q.", reply_markup=requests_menu())
+        await message.answer(t(lang, "requests_empty"), reply_markup=requests_menu(lang))
         return
 
     for request in requests[:10]:
         text = (
             f"<b>#{request.id} {escape(request.title)}</b>\n"
-            f"Status: <code>{request.status.value}</code>\n"
-            f"Tavsif: {safe(request.description)}"
+            f"{t(lang, 'label_status')}: <code>{status_label(lang, request.status)}</code>\n"
+            f"{t(lang, 'label_desc')}: {safe(request.description)}"
         )
-        markup = request_status_keyboard(request.id) if can_change_request_status(user.role) else None
+        markup = request_status_keyboard(request.id, lang) if can_change_request_status(user.role) else None
         await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data.startswith("request_status:"))
-async def request_status(callback: CallbackQuery, session: AsyncSession) -> None:
+async def request_status(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
     user = await require_callback_user(callback, session)
     if user is None:
         return
     if not can_change_request_status(user.role):
-        await callback.answer("Status o'zgartirish uchun ruxsat yo'q.", show_alert=True)
+        await callback.answer(t(lang, "no_perm_status"), show_alert=True)
         return
 
     _, request_id_raw, status_raw = callback.data.split(":", 2)
@@ -117,12 +118,12 @@ async def request_status(callback: CallbackQuery, session: AsyncSession) -> None
         actor=user,
     )
     if request is None:
-        await callback.answer("Zayavka topilmadi.", show_alert=True)
+        await callback.answer(t(lang, "request_not_found"), show_alert=True)
         return
 
     await session.commit()
     await callback.message.edit_text(
-        f"<b>#{request.id} {escape(request.title)}</b>\nStatus: <code>{request.status.value}</code>"
+        f"<b>#{request.id} {escape(request.title)}</b>\n"
+        f"{t(lang, 'label_status')}: <code>{status_label(lang, request.status)}</code>"
     )
-    await callback.answer("Status yangilandi.")
-
+    await callback.answer(t(lang, "status_updated"))

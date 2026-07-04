@@ -1,151 +1,409 @@
 from __future__ import annotations
 
-import math
+"""CRM bot uchun media (rasm va stiker) generatori.
+
+Zamonaviy, to'q korporativ uslub: to'q navy fon, yumaloq oq "карточка",
+акцент рангли иконка бейджи, тоза типографика. Ҳар бир тил (uz_cyrl, ru)
+учун алоҳида тўплам ясайди:
+    assets/photos/<lang>/<screen>.jpg
+    assets/stickers/<lang>/<name>.webp
+"""
+
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-PHOTO_DIR = BASE_DIR / "assets" / "photos"
-STICKER_DIR = BASE_DIR / "assets" / "stickers"
+PHOTO_ROOT = BASE_DIR / "assets" / "photos"
+STICKER_ROOT = BASE_DIR / "assets" / "stickers"
 
+SS = 2  # supersampling (silliq qirralar uchun)
 
-PHOTO_SPECS = {
-    "welcome.jpg": ("Yopiq CRM Bot", "Vrachlar • Aptekalar • Hisobotlar", (29, 72, 99), (240, 183, 77)),
-    "menu.jpg": ("Asosiy menyu", "Role bo'yicha aniq va tartibli ish", (42, 84, 69), (233, 116, 81)),
-    "admin.jpg": ("Admin Panel", "Invite token • Rollar • Nazorat", (73, 57, 120), (85, 169, 153)),
-    "doctors.jpg": ("Vrachlar", "Kontakt, lokatsiya va kategoriya", (20, 105, 126), (244, 162, 97)),
-    "pharmacies.jpg": ("Aptekalar", "Mas'ul shaxs va filial ma'lumotlari", (91, 109, 53), (231, 111, 81)),
-    "daily.jpg": ("Kundalik", "Yozma va voice hisobotlar", (39, 76, 119), (232, 184, 109)),
-    "requests.jpg": ("Zayavkalar", "Yangi • Jarayonda • Bajarildi", (107, 68, 35), (90, 143, 123)),
-    "finance.jpg": ("Finans", "Kirim, chiqim va qarzdorlik", (33, 92, 84), (238, 137, 91)),
-    "salary.jpg": ("Moy zarplata", "Oylik • Bonus • Jarima • Jami", (95, 64, 101), (110, 178, 154)),
+UZ = "uz_cyrl"
+RU = "ru"
+LANGS = (UZ, RU)
+
+# --- Ranglar palitrasi --------------------------------------------------------
+
+BG_TOP = (15, 25, 43)          # to'q navy
+BG_BOTTOM = (8, 12, 22)        # deyarli qora navy
+CARD_FILL = (250, 251, 253, 255)   # oq kartochka
+CARD_BORDER = (255, 255, 255, 60)
+WHITE = (255, 255, 255, 255)
+INK = (24, 36, 60, 255)            # to'q navy matn (kartochkada)
+INK_SUB = (92, 107, 133, 255)      # slate subtitle
+INK_FOOT = (144, 158, 180, 255)    # och footer
+MUTED = (188, 202, 222, 255)       # to'q fon ustidagi och matn
+GRID = (255, 255, 255, 10)
+
+ACCENTS = {
+    "welcome": (79, 142, 255),
+    "menu": (110, 140, 255),
+    "admin": (156, 126, 255),
+    "doctors": (52, 197, 216),
+    "pharmacies": (80, 208, 138),
+    "daily": (243, 179, 77),
+    "requests": (243, 137, 77),
+    "finance": (52, 197, 138),
+    "salary": (226, 110, 158),
+    "done": (70, 208, 138),
 }
 
-STICKER_SPECS = {
-    "welcome.webp": ("CRM", "XUSH KELDINGIZ", (25, 86, 104), (243, 188, 77)),
-    "admin.webp": ("OWNER", "NAZORAT", (89, 66, 135), (97, 190, 170)),
-    "daily.webp": ("REPORT", "SAQLANDI", (37, 91, 142), (241, 170, 94)),
-    "done.webp": ("OK", "TAYYOR", (43, 132, 98), (238, 112, 88)),
+COMPANY = "Ichki CRM"
+
+# --- Matnlar (til bo'yicha) ---------------------------------------------------
+
+PHOTO_TEXT = {
+    "welcome": {
+        UZ: ("Ёпиқ CRM бот", "Врачлар • Аптекалар • Ҳисоботлар"),
+        RU: ("Закрытый CRM-бот", "Врачи • Аптеки • Отчёты"),
+    },
+    "menu": {
+        UZ: ("Асосий меню", "Роль бўйича аниқ ва тартибли иш"),
+        RU: ("Главное меню", "Чёткая работа по ролям"),
+    },
+    "admin": {
+        UZ: ("Админ панель", "Invite токен • Роллар • Назорат"),
+        RU: ("Админ-панель", "Invite-токен • Роли • Контроль"),
+    },
+    "doctors": {
+        UZ: ("Врачлар", "Контакт, локация ва категория"),
+        RU: ("Врачи", "Контакт, локация и категория"),
+    },
+    "pharmacies": {
+        UZ: ("Аптекалар", "Масъул шахс ва филиал маълумоти"),
+        RU: ("Аптеки", "Ответственное лицо и филиал"),
+    },
+    "daily": {
+        UZ: ("Кундалик ҳисобот", "Ёзма ва овозли ҳисоботлар"),
+        RU: ("Ежедневный отчёт", "Текстовые и голосовые отчёты"),
+    },
+    "requests": {
+        UZ: ("Заявкалар", "Янги • Жараёнда • Бажарилди"),
+        RU: ("Заявки", "Новая • В процессе • Выполнено"),
+    },
+    "finance": {
+        UZ: ("Молия", "Кирим, чиқим ва қарздорлик"),
+        RU: ("Финансы", "Приход, расход и задолженность"),
+    },
+    "salary": {
+        UZ: ("Ойлик", "Ойлик • Бонус • Жарима • Жами"),
+        RU: ("Зарплата", "Оклад • Бонус • Штраф • Итого"),
+    },
 }
 
+STICKER_TEXT = {
+    "welcome": {"title": "CRM", UZ: "ХУШ КЕЛДИНГИЗ", RU: "ДОБРО ПОЖАЛОВАТЬ"},
+    "admin": {"title": "OWNER", UZ: "НАЗОРАТ", RU: "КОНТРОЛЬ"},
+    "daily": {"title": "REPORT", UZ: "САҚЛАНДИ", RU: "СОХРАНЕНО"},
+    "done": {"title": "OK", UZ: "ТАЙЁР", RU: "ГОТОВО"},
+}
 
-def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = [
+# rasm ekrani -> ikonka turi
+PHOTO_ICON = {
+    "welcome": "spark",
+    "menu": "grid",
+    "admin": "shield",
+    "doctors": "cross",
+    "pharmacies": "pill",
+    "daily": "clipboard",
+    "requests": "box",
+    "finance": "bars",
+    "salary": "wallet",
+}
+STICKER_ICON = {"welcome": "spark", "admin": "shield", "daily": "clipboard", "done": "check"}
+
+
+# --- Shrift -------------------------------------------------------------------
+
+def _font(size: int, bold: bool = False):
+    # Kirill (ў, қ, ғ, ҳ) va rus harflarini to'liq qoplaydigan shriftlar.
+    candidates = []
+    if bold:
+        candidates += [
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+    candidates += [
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists():
-            return ImageFont.truetype(candidate, size=size)
+    for path in candidates:
+        if Path(path).exists():
+            return ImageFont.truetype(path, size=size)
     return ImageFont.load_default()
 
 
-def make_gradient(size: tuple[int, int], start: tuple[int, int, int], end: tuple[int, int, int]) -> Image.Image:
-    width, height = size
-    image = Image.new("RGB", size)
-    pixels = image.load()
-    for y in range(height):
-        for x in range(width):
-            ratio = (x / width * 0.65) + (y / height * 0.35)
-            pixels[x, y] = tuple(int(start[i] * (1 - ratio) + end[i] * ratio) for i in range(3))
-    return image
+def _fit_font(draw, text, max_width, start_size, bold=True):
+    size = start_size
+    while size > 22:
+        font = _font(size, bold=bold)
+        if draw.textlength(text, font=font) <= max_width:
+            return font
+        size -= 2
+    return _font(size, bold=bold)
 
 
-def draw_wrapped_text(
-    draw: ImageDraw.ImageDraw,
-    position: tuple[int, int],
-    text: str,
-    font: ImageFont.ImageFont,
-    fill: tuple[int, int, int],
-    max_width: int,
-    line_gap: int = 10,
-) -> None:
+# --- Fon elementlari ----------------------------------------------------------
+
+def _vgradient(size, top, bottom):
+    w, h = size
+    grad = Image.new("RGB", (1, h))
+    for y in range(h):
+        r = y / max(h - 1, 1)
+        grad.putpixel((0, y), tuple(int(top[i] * (1 - r) + bottom[i] * r) for i in range(3)))
+    return grad.resize((w, h))
+
+
+def _glow(size, center, radius, color, alpha):
+    """Yumshoq акцент нур. Тезлик учун кичик масштабда чизилиб, кейин катталаштирилади."""
+    q = 6  # масштаб коэффициенти
+    w, h = size[0] // q, size[1] // q
+    cx, cy = center[0] // q, center[1] // q
+    r = max(2, radius // q)
+    small = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(small).ellipse((cx - r, cy - r, cx + r, cy + r), fill=color + (alpha,))
+    small = small.filter(ImageFilter.GaussianBlur(max(1, r // 2)))
+    return small.resize(size, Image.BILINEAR)
+
+
+def _dot_grid(size, step, color):
+    layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    w, h = size
+    r = max(2, step // 22)
+    for x in range(step, w, step):
+        for y in range(step, h, step):
+            d.ellipse((x - r, y - r, x + r, y + r), fill=color)
+    return layer
+
+
+# --- Ikonkalar (oq chiziqли gliflar) -----------------------------------------
+
+def _tline(draw, pts, color, w):
+    draw.line(pts, fill=color, width=w, joint="curve")
+    r = w // 2
+    for x, y in (pts[0], pts[-1]):
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
+
+
+def draw_icon(draw, kind, cx, cy, s, color=WHITE):
+    """(cx,cy) markazда, ярим ўлчам s бўлган иконка."""
+    w = max(6, s // 6)
+
+    if kind == "spark":
+        pts = [(cx, cy - s), (cx + s * 0.28, cy - s * 0.28), (cx + s, cy),
+               (cx + s * 0.28, cy + s * 0.28), (cx, cy + s), (cx - s * 0.28, cy + s * 0.28),
+               (cx - s, cy), (cx - s * 0.28, cy - s * 0.28)]
+        draw.polygon(pts, fill=color)
+    elif kind == "grid":
+        cell = int(s * 0.72)
+        rad = max(6, cell // 4)
+        gap = int(s * 0.18)
+        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+            x0 = cx + (gap if dx > 0 else -cell - gap)
+            y0 = cy + (gap if dy > 0 else -cell - gap)
+            draw.rounded_rectangle((x0, y0, x0 + cell, y0 + cell), radius=rad, fill=color)
+    elif kind == "shield":
+        top = cy - s
+        pts = [(cx, top), (cx + s * 0.82, cy - s * 0.45), (cx + s * 0.82, cy + s * 0.2),
+               (cx, cy + s), (cx - s * 0.82, cy + s * 0.2), (cx - s * 0.82, cy - s * 0.45)]
+        draw.polygon(pts, outline=color, width=w)
+        _tline(draw, [(cx - s * 0.34, cy), (cx - s * 0.05, cy + s * 0.32), (cx + s * 0.42, cy - s * 0.28)], color, w)
+    elif kind == "cross":
+        t = int(s * 0.34)
+        draw.rounded_rectangle((cx - t, cy - s, cx + t, cy + s), radius=t, fill=color)
+        draw.rounded_rectangle((cx - s, cy - t, cx + s, cy + t), radius=t, fill=color)
+    elif kind == "pill":
+        # gorizontal kapsula + ajratuvchi chiziq
+        draw.rounded_rectangle((cx - s, cy - s * 0.52, cx + s, cy + s * 0.52), radius=int(s * 0.52),
+                               outline=color, width=w)
+        _tline(draw, [(cx, cy - s * 0.5), (cx, cy + s * 0.5)], color, max(4, w - 2))
+    elif kind == "clipboard":
+        draw.rounded_rectangle((cx - s * 0.72, cy - s, cx + s * 0.72, cy + s), radius=int(s * 0.2),
+                               outline=color, width=w)
+        clip_w = int(s * 0.5)
+        draw.rounded_rectangle((cx - clip_w, cy - s - w, cx + clip_w, cy - s * 0.62), radius=max(6, w),
+                               fill=color)
+        for i, yy in enumerate((-0.24, 0.1, 0.44)):
+            ln = 0.48 if i < 2 else 0.3
+            _tline(draw, [(cx - s * 0.44, cy + s * yy), (cx + s * ln, cy + s * yy)], color, max(4, w - 2))
+    elif kind == "box":
+        draw.rounded_rectangle((cx - s * 0.82, cy - s * 0.72, cx + s * 0.82, cy + s * 0.82),
+                               radius=int(s * 0.16), outline=color, width=w)
+        _tline(draw, [(cx - s * 0.82, cy - s * 0.05), (cx + s * 0.82, cy - s * 0.05)], color, w)
+        _tline(draw, [(cx, cy - s * 0.72), (cx, cy - s * 0.05)], color, w)
+    elif kind == "bars":
+        base = cy + s * 0.82
+        bw = int(s * 0.42)
+        heights = (0.7, 1.15, 1.6)
+        xs = (cx - s * 0.9, cx - bw * 0.5, cx + s * 0.9 - bw)
+        for x, hf in zip(xs, heights):
+            draw.rounded_rectangle((x, base - s * hf, x + bw, base), radius=max(5, bw // 4), fill=color)
+    elif kind == "wallet":
+        draw.rounded_rectangle((cx - s, cy - s * 0.66, cx + s, cy + s * 0.66), radius=int(s * 0.26),
+                               outline=color, width=w)
+        draw.rounded_rectangle((cx + s * 0.2, cy - s * 0.12, cx + s + w, cy + s * 0.2), radius=max(6, w),
+                               fill=color)
+    elif kind == "check":
+        _tline(draw, [(cx - s * 0.6, cy + s * 0.05), (cx - s * 0.12, cy + s * 0.52), (cx + s * 0.66, cy - s * 0.5)],
+               color, int(w * 1.3))
+
+
+def _round_shadow(size, box, radius, alpha, offset=0):
+    q = 4
+    w, h = size[0] // q, size[1] // q
+    small = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    bx = (box[0] // q, box[1] // q + offset // q, box[2] // q, box[3] // q + offset // q)
+    ImageDraw.Draw(small).rounded_rectangle(bx, radius=radius // q, fill=(0, 0, 0, alpha))
+    small = small.filter(ImageFilter.GaussianBlur(6))
+    return small.resize(size, Image.BILINEAR)
+
+
+def _badge(base, x, y, size, accent, icon, glow=True):
+    """Акцент рангли иконка бейджи."""
+    if glow:
+        base.alpha_composite(_glow(base.size, (x + size // 2, y + size // 2), int(size * 0.9), accent, 120))
+    d = ImageDraw.Draw(base, "RGBA")
+    d.rounded_rectangle((x, y, x + size, y + size), radius=int(size * 0.28), fill=accent + (255,))
+    draw_icon(d, icon, x + size // 2, y + size // 2, int(size * 0.3))
+
+
+# --- Rasm (photo) -------------------------------------------------------------
+
+def create_photo(path, screen, lang):
+    W, H = 1280 * SS, 720 * SS
+    accent = ACCENTS[screen]
+    title, subtitle = PHOTO_TEXT[screen][lang]
+
+    img = _vgradient((W, H), BG_TOP, BG_BOTTOM).convert("RGBA")
+    img.alpha_composite(_dot_grid((W, H), 46 * SS, GRID))
+    img.alpha_composite(_glow((W, H), (W - 250 * SS, 170 * SS), 360 * SS, accent, 70))
+    img.alpha_composite(_glow((W, H), (150 * SS, H - 60 * SS), 260 * SS, accent, 30))
+
+    d = ImageDraw.Draw(img, "RGBA")
+
+    # dekоратив halqalar (o'ng tomonda)
+    for rr in (150, 224, 298):
+        d.ellipse((W - 240 * SS - rr * SS, 175 * SS - rr * SS, W - 240 * SS + rr * SS, 175 * SS + rr * SS),
+                  outline=(255, 255, 255, 14), width=max(2, SS))
+
+    # Карточка koordinatalari
+    cx0, cy0, cx1, cy1 = 74 * SS, 120 * SS, 800 * SS, 600 * SS
+    rad = 40 * SS
+
+    # Kartochka soyasi (chuqurlik uchun)
+    img.alpha_composite(_round_shadow((W, H), (cx0, cy0, cx1, cy1), rad, alpha=120, offset=18 * SS))
+
+    d = ImageDraw.Draw(img, "RGBA")
+    d.rounded_rectangle((cx0, cy0, cx1, cy1), radius=rad, fill=CARD_FILL, outline=CARD_BORDER, width=max(2, SS))
+    # chap akcent chiziq
+    d.rounded_rectangle((cx0 + 0, cy0 + 34 * SS, cx0 + 9 * SS, cy1 - 34 * SS), radius=4 * SS, fill=accent + (255,))
+
+    pad = cx0 + 56 * SS
+
+    # Иконка бейджи (glow yo'q — oq kartochkada toza turadi)
+    _badge(img, pad, cy0 + 44 * SS, 128 * SS, accent, PHOTO_ICON[screen], glow=False)
+    d = ImageDraw.Draw(img, "RGBA")
+
+    # top-right монограма (акцент рамка + акцент матн)
+    mb = 64 * SS
+    mx, my = cx1 - mb - 34 * SS, cy0 + 34 * SS
+    d.rounded_rectangle((mx, my, mx + mb, my + mb), radius=18 * SS, outline=accent + (255,), width=max(3, 2 * SS))
+    d.text((mx + mb / 2, my + mb / 2 + SS), "CRM", font=_font(24 * SS, bold=True), fill=accent + (255,), anchor="mm")
+
+    # Sarlavha
+    title_font = _fit_font(d, title, 600 * SS, 62 * SS, bold=True)
+    d.text((pad, cy0 + 214 * SS), title, font=title_font, fill=INK)
+
+    # Акцент ажратгич
+    d.rounded_rectangle((pad, cy0 + 300 * SS, pad + 66 * SS, cy0 + 307 * SS), radius=3 * SS, fill=accent + (255,))
+
+    # Subtitle (o'ralgan)
+    sub_font = _font(30 * SS)
+    _wrapped(d, (pad, cy0 + 330 * SS), subtitle, sub_font, INK_SUB, 600 * SS, 12 * SS)
+
+    # Footer
+    fy = cy1 - 62 * SS
+    d.ellipse((pad, fy + 5 * SS, pad + 15 * SS, fy + 20 * SS), fill=accent + (255,))
+    d.text((pad + 28 * SS, fy + 1 * SS), f"{COMPANY}   ·   Telegram CRM", font=_font(24 * SS, bold=True), fill=INK_FOOT)
+
+    out = img.convert("RGB").resize((1280, 720), Image.LANCZOS)
+    out.save(path, quality=92, optimize=True)
+
+
+def _wrapped(draw, pos, text, font, fill, max_width, line_gap):
     words = text.split()
-    lines: list[str] = []
-    current = ""
+    lines, cur = [], ""
     for word in words:
-        trial = f"{current} {word}".strip()
-        if draw.textbbox((0, 0), trial, font=font)[2] <= max_width:
-            current = trial
+        trial = f"{cur} {word}".strip()
+        if draw.textlength(trial, font=font) <= max_width:
+            cur = trial
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-
-    x, y = position
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    x, y = pos
     for line in lines:
         draw.text((x, y), line, font=font, fill=fill)
-        y += draw.textbbox((0, 0), line, font=font)[3] + line_gap
+        y += font.size + line_gap
 
 
-def create_photo(filename: str, title: str, subtitle: str, start: tuple[int, int, int], end: tuple[int, int, int]) -> None:
-    image = make_gradient((1280, 720), start, end)
-    draw = ImageDraw.Draw(image, "RGBA")
-    title_font = load_font(76, bold=True)
-    subtitle_font = load_font(34)
-    small_font = load_font(24)
+# --- Stiker -------------------------------------------------------------------
 
-    for idx in range(8):
-        x = 780 + idx * 55
-        y = 90 + int(math.sin(idx) * 35)
-        draw.rounded_rectangle((x, y, x + 260, y + 95), radius=28, fill=(255, 255, 255, 30), outline=(255, 255, 255, 65))
+def create_sticker(path, name, lang):
+    S = 512 * SS
+    accent = ACCENTS.get(name, ACCENTS["done"])
+    spec = STICKER_TEXT[name]
 
-    draw.rounded_rectangle((70, 88, 750, 610), radius=42, fill=(255, 255, 255, 34), outline=(255, 255, 255, 80), width=2)
-    draw.ellipse((900, 380, 1210, 690), fill=(255, 255, 255, 32))
-    draw.ellipse((1015, 70, 1190, 245), fill=(0, 0, 0, 28))
+    base = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    grad = _vgradient((S, S), BG_TOP, BG_BOTTOM).convert("RGBA")
+    mask = Image.new("L", (S, S), 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle((30 * SS, 30 * SS, S - 30 * SS, S - 30 * SS), radius=120 * SS, fill=255)
+    base.paste(grad, (0, 0), mask)
 
-    draw.text((115, 155), title, font=title_font, fill=(255, 255, 255, 255))
-    draw_wrapped_text(draw, (120, 285), subtitle, subtitle_font, (255, 248, 226, 245), 560)
-    draw.text((122, 505), "Telegram ichida tezkor boshqaruv", font=small_font, fill=(255, 255, 255, 210))
+    base.alpha_composite(_glow((S, S), (S // 2, 150 * SS), 220 * SS, accent, 90))
 
-    image.save(PHOTO_DIR / filename, quality=92, optimize=True)
+    d = ImageDraw.Draw(base, "RGBA")
+    d.rounded_rectangle((56 * SS, 56 * SS, S - 56 * SS, S - 56 * SS), radius=96 * SS,
+                        outline=accent + (150,), width=6 * SS)
+
+    _badge(base, S // 2 - 74 * SS, 96 * SS, 148 * SS, accent, STICKER_ICON[name])
+    d = ImageDraw.Draw(base, "RGBA")
+
+    tf = _font(46 * SS, bold=True)
+    d.text((S // 2, 300 * SS), spec["title"], font=tf, fill=WHITE, anchor="mm")
+
+    status = spec[lang]
+    sf = _fit_font(d, status, S - 150 * SS, 34 * SS, bold=True)
+    d.text((S // 2, 372 * SS), status, font=sf, fill=accent + (255,), anchor="mm")
+
+    out = base.resize((512, 512), Image.LANCZOS)
+    out.save(path, "WEBP", quality=92, method=3)
 
 
-def create_sticker(filename: str, title: str, subtitle: str, start: tuple[int, int, int], end: tuple[int, int, int]) -> None:
-    base = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
-    grad = make_gradient((512, 512), start, end).convert("RGBA")
-    mask = Image.new("L", (512, 512), 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.rounded_rectangle((38, 48, 474, 464), radius=116, fill=255)
-    base.alpha_composite(grad, (0, 0))
-    base.putalpha(mask)
-
-    draw = ImageDraw.Draw(base, "RGBA")
-    draw.rounded_rectangle((62, 72, 450, 440), radius=92, outline=(255, 255, 255, 92), width=5)
-    draw.ellipse((348, 72, 438, 162), fill=(255, 255, 255, 42))
-    draw.ellipse((82, 342, 180, 440), fill=(0, 0, 0, 32))
-
-    title_font = load_font(88, bold=True)
-    subtitle_font = load_font(34, bold=True)
-    title_box = draw.textbbox((0, 0), title, font=title_font)
-    subtitle_box = draw.textbbox((0, 0), subtitle, font=subtitle_font)
-    draw.text(((512 - (title_box[2] - title_box[0])) / 2, 175), title, font=title_font, fill=(255, 255, 255, 255))
-    draw.text(
-        ((512 - (subtitle_box[2] - subtitle_box[0])) / 2, 285),
-        subtitle,
-        font=subtitle_font,
-        fill=(255, 248, 225, 245),
-    )
-    base.save(STICKER_DIR / filename, "WEBP", quality=92, method=6)
-
+# --- Main ---------------------------------------------------------------------
 
 def main() -> None:
-    PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-    STICKER_DIR.mkdir(parents=True, exist_ok=True)
+    for lang in LANGS:
+        photo_dir = PHOTO_ROOT / lang
+        sticker_dir = STICKER_ROOT / lang
+        photo_dir.mkdir(parents=True, exist_ok=True)
+        sticker_dir.mkdir(parents=True, exist_ok=True)
 
-    for filename, spec in PHOTO_SPECS.items():
-        create_photo(filename, *spec)
-    for filename, spec in STICKER_SPECS.items():
-        create_sticker(filename, *spec)
+        for screen in PHOTO_TEXT:
+            create_photo(photo_dir / f"{screen}.jpg", screen, lang)
+        for name in STICKER_TEXT:
+            create_sticker(sticker_dir / f"{name}.webp", name, lang)
+
+    print("Generated photos & stickers for:", ", ".join(LANGS))
 
 
 if __name__ == "__main__":
     main()
-

@@ -5,23 +5,31 @@ import logging
 from aiogram import Bot
 from aiogram.types import BotCommand
 
-from app.texts import BOT_DESCRIPTION, BOT_SHORT_DESCRIPTION
+from app.i18n import RU, UZ_CYRL, t
 
 logger = logging.getLogger(__name__)
 
 
-async def setup_bot_profile(bot: Bot) -> None:
-    commands = [
-        BotCommand(command="start", description="Botni ishga tushirish"),
-        BotCommand(command="menu", description="Asosiy menyu"),
-        BotCommand(command="help", description="Yordam"),
-        BotCommand(command="id", description="Telegram ID ko'rish"),
+def _commands(lang: str) -> list[BotCommand]:
+    return [
+        BotCommand(command="start", description=t(lang, "cmd_start")),
+        BotCommand(command="menu", description=t(lang, "cmd_menu")),
+        BotCommand(command="language", description=t(lang, "cmd_language")),
+        BotCommand(command="help", description=t(lang, "cmd_help")),
+        BotCommand(command="id", description=t(lang, "cmd_id")),
     ]
 
+
+async def setup_bot_profile(bot: Bot) -> None:
     try:
-        await bot.set_my_commands(commands)
-        await bot.set_my_description(BOT_DESCRIPTION)
-        await bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
+        # Default (Ўзбекча кирилл) — tili aniqlanmagan foydalanuvchilar uchun.
+        await bot.set_my_commands(_commands(UZ_CYRL))
+        await bot.set_my_description(t(UZ_CYRL, "bot_description"))
+        await bot.set_my_short_description(t(UZ_CYRL, "bot_short_description"))
+
+        # Rus tilidagi Telegram interfeysi uchun.
+        await bot.set_my_commands(_commands(RU), language_code="ru")
+        await bot.set_my_description(t(RU, "bot_description"), language_code="ru")
+        await bot.set_my_short_description(t(RU, "bot_short_description"), language_code="ru")
     except Exception:
         logger.exception("Bot profile sozlamalarini Telegramga yuborib bo'lmadi")
-

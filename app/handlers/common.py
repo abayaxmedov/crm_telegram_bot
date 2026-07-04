@@ -7,14 +7,14 @@ from aiogram.filters import Command, CommandStart
 from aiogram.filters.command import CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Role
+from app.db.models import Role, User
 from app.db.repositories import bind_invited_user, get_user_by_invite_token, get_user_by_telegram_id
-from app.keyboards.reply import BTN_MENU, main_menu, phone_number_keyboard
+from app.i18n import LANGUAGES, normalize, role_label, t, variants
+from app.keyboards.reply import language_inline_keyboard, main_menu, phone_number_keyboard
 from app.services.media import answer_media
-from app.texts import MENU_TEXT, WELCOME_TEXT
 
 router = Router(name="common")
 
@@ -23,32 +23,46 @@ class PhoneNumberFlow(StatesGroup):
     phone_number = State()
 
 
+def _welcome_with_role(lang: str, role: Role) -> str:
+    return f"{t(lang, 'welcome_text')}\n\n<b>{t(lang, 'your_role')}:</b> {role_label(lang, role)}"
+
+
+async def _show_language_picker(message: Message) -> None:
+    await message.answer(t(normalize(None), "choose_language"), reply_markup=language_inline_keyboard())
+
+
 @router.message(CommandStart())
-async def cmd_start(message: Message, command: CommandObject, session: AsyncSession, state: FSMContext) -> None:
+async def cmd_start(
+    message: Message, command: CommandObject, session: AsyncSession, state: FSMContext, lang: str
+) -> None:
     if message.from_user is None:
         return
 
     current_user = await get_user_by_telegram_id(session, message.from_user.id)
     if current_user and current_user.is_active:
-        if phone_number_required(current_user):
-            text = (
-                f"{WELCOME_TEXT}\n\n"
-                f"<b>Sizning rolingiz:</b> <code>{current_user.role.value}</code>\n\n"
-                "Davom etish uchun telefon raqamingizni yuboring."
-            )
-            await state.set_state(PhoneNumberFlow.phone_number)
-            await answer_media(message, screen="welcome", text=text, reply_markup=phone_number_keyboard())
+        # Til hali tanlanmagan bo'lsa avval tilni so'raymiz.
+        if not current_user.language:
+            await _show_language_picker(message)
             return
 
-        text = (
-            f"{WELCOME_TEXT}\n\n"
-            f"<b>Sizning rolingiz:</b> <code>{current_user.role.value}</code>"
-        )
+        lang = normalize(current_user.language)
+        if phone_number_required(current_user):
+            await state.set_state(PhoneNumberFlow.phone_number)
+            await answer_media(
+                message,
+                screen="welcome",
+                text=f"{_welcome_with_role(lang, current_user.role)}\n\n{t(lang, 'continue_send_phone')}",
+                lang=lang,
+                reply_markup=phone_number_keyboard(lang),
+            )
+            return
+
         await answer_media(
             message,
             screen="welcome",
-            text=text,
-            reply_markup=main_menu(current_user.role),
+            text=_welcome_with_role(lang, current_user.role),
+            lang=lang,
+            reply_markup=main_menu(current_user.role, lang),
         )
         return
 
@@ -73,56 +87,113 @@ async def cmd_start(message: Message, command: CommandObject, session: AsyncSess
     )
     await session.commit()
 
-    text = (
-        f"{WELCOME_TEXT}\n\n"
-        f"<b>Profil:</b> {escape(invited_user.full_name)}\n"
-        f"<b>Sizning rolingiz:</b> <code>{invited_user.role.value}</code>\n\n"
-        "Davom etish uchun telefon raqamingizni yuboring."
+    # Yangi foydalanuvchi: avval tilni tanlaydi, keyin telefon so'raladi.
+    await _show_language_picker(message)
+
+
+@router.callback_query(F.data.startswith("set_lang:"))
+async def set_language(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.data is None or callback.message is None:
+        await callback.answer()
+        return
+
+    code = callback.data.split(":", 1)[1]
+    if code not in LANGUAGES:
+        await callback.answer()
+        return
+
+    user = await get_user_by_telegram_id(session, callback.from_user.id)
+    if user is None or not user.is_active:
+        await callback.answer()
+        return
+
+    user.language = code
+    await session.commit()
+    lang = code
+
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(t(lang, "language_set"))
+
+    if phone_number_required(user):
+        await state.set_state(PhoneNumberFlow.phone_number)
+        await answer_media(
+            callback.message,
+            screen="welcome",
+            text=f"{_welcome_with_role(lang, user.role)}\n\n{t(lang, 'continue_send_phone')}",
+            lang=lang,
+            reply_markup=phone_number_keyboard(lang),
+        )
+        return
+
+    await answer_media(
+        callback.message,
+        screen="welcome",
+        text=_welcome_with_role(lang, user.role),
+        lang=lang,
+        reply_markup=main_menu(user.role, lang),
     )
-    await state.set_state(PhoneNumberFlow.phone_number)
-    await answer_media(message, screen="welcome", text=text, reply_markup=phone_number_keyboard())
+
+
+@router.message(Command("language"))
+@router.message(F.text.in_(variants("btn_language")))
+async def change_language(message: Message, session: AsyncSession) -> None:
+    if message.from_user is None:
+        return
+    user = await get_user_by_telegram_id(session, message.from_user.id)
+    if user is None or not user.is_active:
+        return
+    await _show_language_picker(message)
 
 
 @router.message(PhoneNumberFlow.phone_number, F.contact)
-async def phone_from_contact(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def phone_from_contact(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if message.from_user is None or message.contact is None:
         return
 
     if message.contact.user_id and message.contact.user_id != message.from_user.id:
-        await message.answer("Iltimos, o'zingizning Telegram contactingizni yuboring.")
+        await message.answer(t(lang, "phone_own_contact"))
         return
 
-    await save_user_phone(message, session, state, message.contact.phone_number)
+    await save_user_phone(message, session, state, message.contact.phone_number, lang)
 
 
 @router.message(PhoneNumberFlow.phone_number)
-async def phone_from_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def phone_from_text(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     phone_number = (message.text or "").strip()
     if len(phone_number) < 7:
-        await message.answer("Telefon raqam juda qisqa. Masalan: +998901234567")
+        await message.answer(t(lang, "phone_too_short"))
         return
 
-    await save_user_phone(message, session, state, phone_number)
+    await save_user_phone(message, session, state, phone_number, lang)
 
 
 @router.message(Command("menu"))
-@router.message(F.text == BTN_MENU)
-async def cmd_menu(message: Message, session: AsyncSession, state: FSMContext) -> None:
+@router.message(F.text.in_(variants("btn_menu")))
+async def cmd_menu(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if message.from_user is None:
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user is None or not user.is_active:
         return
+    if not user.language:
+        await _show_language_picker(message)
+        return
     if phone_number_required(user):
-        await request_phone_number(message, state)
+        await request_phone_number(message, lang, state)
         return
 
-    await answer_media(message, screen="menu", text=MENU_TEXT, reply_markup=main_menu(user.role), sticker=False)
+    await answer_media(
+        message, screen="menu", text=t(lang, "menu_text"), lang=lang, reply_markup=main_menu(user.role, lang), sticker=False
+    )
 
 
 @router.message(Command("help"))
-async def cmd_help(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def cmd_help(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if message.from_user is None:
         return
 
@@ -130,56 +201,51 @@ async def cmd_help(message: Message, session: AsyncSession, state: FSMContext) -
     if user is None or not user.is_active:
         return
     if phone_number_required(user):
-        await request_phone_number(message, state)
+        await request_phone_number(message, lang, state)
         return
 
-    text = (
-        "<b>Yordam</b>\n\n"
-        "Bot yopiq CRM sifatida ishlaydi. Barcha bo'limlar role bo'yicha ochiladi.\n"
-        "Muammo bo'lsa ownerga murojaat qiling yoki /id orqali Telegram ID ni yuboring."
-    )
-    await message.answer(text, reply_markup=main_menu(user.role))
+    await message.answer(t(lang, "help_text"), reply_markup=main_menu(user.role, lang))
 
 
 @router.message(Command("id"))
-async def cmd_id(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def cmd_id(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if message.from_user is None:
         return
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user is None or not user.is_active:
         return
     if phone_number_required(user):
-        await request_phone_number(message, state)
+        await request_phone_number(message, lang, state)
         return
-    await message.answer(f"<b>Telegram ID:</b> <code>{message.from_user.id}</code>")
+    await message.answer(f"<b>{t(lang, 'tg_id')}:</b> <code>{message.from_user.id}</code>")
 
 
 @router.message()
-async def fallback(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def fallback(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if message.from_user is None:
         return
 
     user = await get_user_by_telegram_id(session, message.from_user.id)
     if user is None or not user.is_active:
         return
+    if not user.language:
+        await _show_language_picker(message)
+        return
     if phone_number_required(user):
-        await request_phone_number(message, state)
+        await request_phone_number(message, lang, state)
         return
 
-    await message.answer("Bo'limni menyudan tanlang yoki /menu buyrug'ini yuboring.", reply_markup=main_menu(user.role))
+    await message.answer(t(lang, "fallback"), reply_markup=main_menu(user.role, lang))
 
 
-def phone_number_required(user) -> bool:
+def phone_number_required(user: User) -> bool:
     return user.role != Role.OWNER and not user.phone_number
 
 
-async def request_phone_number(message: Message, state: FSMContext | None = None) -> None:
+async def request_phone_number(message: Message, lang: str, state: FSMContext | None = None) -> None:
     if state is not None:
         await state.set_state(PhoneNumberFlow.phone_number)
-    await message.answer(
-        "Davom etish uchun telefon raqamingizni yuboring.",
-        reply_markup=phone_number_keyboard(),
-    )
+    await message.answer(t(lang, "continue_send_phone"), reply_markup=phone_number_keyboard(lang))
 
 
 async def save_user_phone(
@@ -187,6 +253,7 @@ async def save_user_phone(
     session: AsyncSession,
     state: FSMContext,
     phone_number: str,
+    lang: str,
 ) -> None:
     if message.from_user is None:
         return
@@ -199,9 +266,8 @@ async def save_user_phone(
     await session.commit()
     await state.clear()
 
-    text = (
-        "<b>Telefon raqamingiz saqlandi.</b>\n\n"
-        f"<b>Sizning rolingiz:</b> <code>{user.role.value}</code>"
-    )
+    text = f"{t(lang, 'phone_saved')}\n\n<b>{t(lang, 'your_role')}:</b> {role_label(lang, user.role)}"
     await message.answer(text, reply_markup=ReplyKeyboardRemove())
-    await answer_media(message, screen="menu", text=MENU_TEXT, reply_markup=main_menu(user.role), sticker=False)
+    await answer_media(
+        message, screen="menu", text=t(lang, "menu_text"), lang=lang, reply_markup=main_menu(user.role, lang), sticker=False
+    )

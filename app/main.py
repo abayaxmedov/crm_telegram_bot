@@ -13,6 +13,7 @@ from app.db.repositories import seed_owners
 from app.db.session import AsyncSessionLocal, init_db
 from app.handlers import setup_routers
 from app.middlewares.db import DbSessionMiddleware
+from app.middlewares.language import LanguageMiddleware
 from app.services.profile import setup_bot_profile
 
 
@@ -33,6 +34,8 @@ async def main() -> None:
     )
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.middleware(DbSessionMiddleware())
+    dp.message.middleware(LanguageMiddleware())
+    dp.callback_query.middleware(LanguageMiddleware())
     setup_routers(dp)
 
     await setup_bot_profile(bot)

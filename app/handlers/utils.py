@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
 from app.db.repositories import get_user_by_telegram_id
+from app.i18n import t
 
 
 async def require_user(message: Message, session: AsyncSession) -> User | None:
@@ -31,7 +32,7 @@ def clean_optional(value: str | None) -> str | None:
     if value is None:
         return None
     value = value.strip()
-    if value in {"", "-", "yo'q", "yo‘q", "нет", "no"}:
+    if value in {"", "-", "yo'q", "yo‘q", "йўқ", "нет", "no"}:
         return None
     return value
 
@@ -40,8 +41,7 @@ def safe(value: object | None) -> str:
     return escape(str(value)) if value is not None else "-"
 
 
-def user_line(user: User) -> str:
-    tg = user.telegram_id if user.telegram_id is not None else "invite kutilmoqda"
-    active = "active" if user.is_active else "inactive"
+def user_line(user: User, lang: str) -> str:
+    tg = user.telegram_id if user.telegram_id is not None else t(lang, "invite_pending")
+    active = t(lang, "user_active") if user.is_active else t(lang, "user_inactive")
     return f"#{user.id} | {safe(user.full_name)} | {user.role.value} | {tg} | {active}"
-

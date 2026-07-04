@@ -58,6 +58,8 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(enum_type(Role), index=True)
     phone_number: Mapped[str | None] = mapped_column(String(64))
+    # Tanlangan interfeys tili: "uz_cyrl" yoki "ru". None => hali tanlanmagan.
+    language: Mapped[str | None] = mapped_column(String(16))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     invite_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     invite_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

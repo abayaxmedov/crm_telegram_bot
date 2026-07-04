@@ -12,10 +12,10 @@ from app.config import settings
 from app.db.models import Role
 from app.db.repositories import create_invited_user, list_users
 from app.handlers.utils import require_callback_user, require_user, user_line
-from app.keyboards.reply import BTN_ADMIN, admin_menu, back_menu, role_inline_keyboard
+from app.i18n import role_label, t, variants
+from app.keyboards.reply import admin_menu, back_menu, role_inline_keyboard
 from app.services.media import answer_media
-from app.services.security import ROLE_LABELS, can_create_role
-from app.texts import ADMIN_TEXT
+from app.services.security import can_create_role
 
 router = Router(name="admin")
 
@@ -24,30 +24,30 @@ class CreateUserFlow(StatesGroup):
     full_name = State()
 
 
-@router.message(F.text == BTN_ADMIN)
-async def admin_panel(message: Message, session: AsyncSession) -> None:
+@router.message(F.text.in_(variants("btn_admin")))
+async def admin_panel(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if user.role not in {Role.OWNER, Role.MANAGER}:
-        await message.answer("Bu bo'lim sizga ochilmagan.")
+        await message.answer(t(lang, "section_closed"))
         return
-    await answer_media(message, screen="admin", text=ADMIN_TEXT, reply_markup=admin_menu())
+    await answer_media(message, screen="admin", text=t(lang, "admin_text"), lang=lang, reply_markup=admin_menu(lang))
 
 
-@router.message(F.text == "➕ User yaratish")
-async def create_user_start(message: Message, session: AsyncSession) -> None:
+@router.message(F.text.in_(variants("btn_user_create")))
+async def create_user_start(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if user.role not in {Role.OWNER, Role.MANAGER}:
-        await message.answer("User yaratish uchun ruxsat yo'q.")
+        await message.answer(t(lang, "no_perm_user_create"))
         return
-    await message.answer("Yangi user roleni tanlang:", reply_markup=role_inline_keyboard(user.role))
+    await message.answer(t(lang, "choose_new_role"), reply_markup=role_inline_keyboard(user.role, lang))
 
 
 @router.callback_query(F.data.startswith("create_role:"))
-async def create_user_role(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+async def create_user_role(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_callback_user(callback, session)
     if user is None:
         return
@@ -55,30 +55,32 @@ async def create_user_role(callback: CallbackQuery, session: AsyncSession, state
     raw_role = callback.data.split(":", 1)[1] if callback.data else ""
     role = Role(raw_role)
     if not can_create_role(user.role, role):
-        await callback.answer("Bu roleni yaratishga ruxsat yo'q.", show_alert=True)
+        await callback.answer(t(lang, "role_not_allowed"), show_alert=True)
         return
 
     await state.update_data(role=role.value)
     await state.set_state(CreateUserFlow.full_name)
-    await callback.message.answer(f"{ROLE_LABELS[role]} uchun ism-familiyani kiriting:", reply_markup=back_menu())
+    await callback.message.answer(
+        t(lang, "enter_fullname_for_role", role=role_label(lang, role)), reply_markup=back_menu(lang)
+    )
     await callback.answer()
 
 
 @router.message(CreateUserFlow.full_name)
-async def create_user_finish(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def create_user_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     actor = await require_user(message, session)
     if actor is None:
         return
 
     full_name = (message.text or "").strip()
     if len(full_name) < 3:
-        await message.answer("Ism-familiya kamida 3 ta belgidan iborat bo'lsin.")
+        await message.answer(t(lang, "fullname_too_short"))
         return
 
     data = await state.get_data()
     role = Role(data["role"])
     if not can_create_role(actor.role, role):
-        await message.answer("Bu roleni yaratishga ruxsat yo'q.")
+        await message.answer(t(lang, "role_not_allowed"))
         await state.clear()
         return
 
@@ -98,29 +100,29 @@ async def create_user_finish(message: Message, session: AsyncSession, state: FSM
         bot_username = me.username
 
     invite_link = f"https://t.me/{bot_username}?start={invited.invite_token}" if bot_username else invited.invite_token
-    text = (
-        "<b>Invite tayyor.</b>\n\n"
-        f"<b>User:</b> {escape(invited.full_name)}\n"
-        f"<b>Role:</b> {ROLE_LABELS[invited.role]}\n"
-        f"<b>Link:</b> {invite_link}\n\n"
-        "User shu link orqali kirganda Telegram ID bazaga biriktiriladi va telefon raqami o'zidan so'raladi."
+    text = t(
+        lang,
+        "invite_ready",
+        name=escape(invited.full_name),
+        role=role_label(lang, invited.role),
+        link=invite_link,
     )
-    await answer_media(message, screen="done", text=text, reply_markup=admin_menu())
+    await answer_media(message, screen="done", text=text, lang=lang, reply_markup=admin_menu(lang))
 
 
-@router.message(F.text == "👥 Userlar")
-async def users_list(message: Message, session: AsyncSession) -> None:
+@router.message(F.text.in_(variants("btn_users")))
+async def users_list(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if user.role not in {Role.OWNER, Role.MANAGER}:
-        await message.answer("Userlar ro'yxati sizga ochilmagan.")
+        await message.answer(t(lang, "users_list_closed"))
         return
 
     rows = await list_users(session)
     if not rows:
-        await message.answer("Hali userlar yo'q.", reply_markup=admin_menu())
+        await message.answer(t(lang, "no_users"), reply_markup=admin_menu(lang))
         return
 
-    text = "<b>Oxirgi userlar</b>\n\n" + "\n".join(user_line(row) for row in rows)
-    await message.answer(text, reply_markup=admin_menu())
+    text = t(lang, "last_users") + "\n\n" + "\n".join(user_line(row, lang) for row in rows)
+    await message.answer(text, reply_markup=admin_menu(lang))

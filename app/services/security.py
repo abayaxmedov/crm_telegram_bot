@@ -3,23 +3,7 @@ from __future__ import annotations
 from app.db.models import Role
 
 
-ROLE_LABELS: dict[Role, str] = {
-    Role.OWNER: "Owner",
-    Role.MANAGER: "Menejer",
-    Role.OPERATOR: "Operator",
-    Role.ASSISTANT: "Operator yordamchisi",
-    Role.DOCTOR: "Vrach",
-    Role.PHARMACY: "Apteka",
-}
-
-ROLE_DESCRIPTIONS: dict[Role, str] = {
-    Role.OWNER: "Barcha bo'limlarni boshqaradi, user yaratadi va hisobotlarni ko'radi.",
-    Role.MANAGER: "Vrach/apteka ma'lumotlari, kundalik va zayavkalar bilan ishlaydi.",
-    Role.OPERATOR: "Zayavkalar va operatsion jarayonlarni yuritadi.",
-    Role.ASSISTANT: "Kuzatuv, kundalik va yordamchi vazifalarni bajaradi.",
-    Role.DOCTOR: "O'ziga tegishli ma'lumot va zarplata bo'limlarini ko'radi.",
-    Role.PHARMACY: "Apteka profiliga tegishli qismlardan foydalanadi.",
-}
+# Rol nomlari endi app/i18n.py da (role_label) lokalizatsiya qilinadi.
 
 ROLE_CREATE_ORDER: tuple[Role, ...] = (
     Role.OWNER,
@@ -53,4 +37,3 @@ def can_change_request_status(role: Role) -> bool:
 
 def can_view_finance(role: Role) -> bool:
     return role == Role.OWNER
-

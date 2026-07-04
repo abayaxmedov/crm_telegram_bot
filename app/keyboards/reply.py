@@ -3,20 +3,11 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from app.db.models import FinanceType, RequestStatus, Role
-from app.services.security import ROLE_CREATE_ORDER, ROLE_LABELS, can_create_role
+from app.i18n import LANGUAGE_NAMES, LANGUAGES, role_label, t
+from app.services.security import ROLE_CREATE_ORDER, can_create_role
 
 
-BTN_MENU = "🏠 Asosiy menyu"
-BTN_ADMIN = "👑 Admin"
-BTN_DOCTORS = "🧑‍⚕️ Vrachlar"
-BTN_PHARMACIES = "💊 Aptekalar"
-BTN_DAILY = "🗒 Kundalik"
-BTN_REQUESTS = "📦 Zayavkalar"
-BTN_FINANCE = "💰 Finans"
-BTN_SALARY = "🧾 Moy zarplata"
-
-
-def reply_keyboard(rows: list[list[str]], *, placeholder: str = "Bo'limni tanlang") -> ReplyKeyboardMarkup:
+def reply_keyboard(rows: list[list[str]], *, placeholder: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=item) for item in row] for row in rows],
         resize_keyboard=True,
@@ -24,112 +15,162 @@ def reply_keyboard(rows: list[list[str]], *, placeholder: str = "Bo'limni tanlan
     )
 
 
-def main_menu(role: Role) -> ReplyKeyboardMarkup:
+def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
+    admin = t(lang, "btn_admin")
+    doctors = t(lang, "btn_doctors")
+    pharmacies = t(lang, "btn_pharmacies")
+    daily = t(lang, "btn_daily")
+    requests = t(lang, "btn_requests")
+    finance = t(lang, "btn_finance")
+    salary = t(lang, "btn_salary")
+    language = t(lang, "btn_language")
+
     if role == Role.OWNER:
         rows = [
-            [BTN_ADMIN, BTN_DOCTORS],
-            [BTN_PHARMACIES, BTN_DAILY],
-            [BTN_REQUESTS, BTN_FINANCE],
-            [BTN_SALARY],
+            [admin, doctors],
+            [pharmacies, daily],
+            [requests, finance],
+            [salary, language],
         ]
     elif role == Role.MANAGER:
         rows = [
-            [BTN_ADMIN, BTN_DOCTORS],
-            [BTN_PHARMACIES, BTN_DAILY],
-            [BTN_REQUESTS, BTN_SALARY],
+            [admin, doctors],
+            [pharmacies, daily],
+            [requests, salary],
+            [language],
         ]
     elif role in {Role.OPERATOR, Role.ASSISTANT}:
-        rows = [[BTN_REQUESTS, BTN_DAILY], [BTN_DOCTORS, BTN_PHARMACIES], [BTN_SALARY]]
+        rows = [[requests, daily], [doctors, pharmacies], [salary, language]]
     else:
-        rows = [[BTN_DAILY, BTN_SALARY], [BTN_REQUESTS]]
-    return reply_keyboard(rows, placeholder="CRM bo'limini tanlang")
+        rows = [[daily, salary], [requests], [language]]
+    return reply_keyboard(rows, placeholder=t(lang, "ph_crm_section"))
 
 
-def back_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([[BTN_MENU]])
+def back_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard([[t(lang, "btn_menu")]], placeholder=t(lang, "ph_select_section"))
 
 
-def phone_number_keyboard() -> ReplyKeyboardMarkup:
+def phone_number_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]],
+        keyboard=[[KeyboardButton(text=t(lang, "btn_phone_share"), request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
-        input_field_placeholder="Telefon raqamingizni yuboring",
+        input_field_placeholder=t(lang, "ph_send_phone"),
     )
 
 
-def admin_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["➕ User yaratish", "👥 Userlar"], [BTN_MENU]])
+def language_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=LANGUAGE_NAMES[code], callback_data=f"set_lang:{code}")]
+            for code in LANGUAGES
+        ]
+    )
 
 
-def doctors_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["➕ Vrach qo‘shish", "📋 Vrachlar ro‘yxati"], [BTN_MENU]])
+def admin_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_user_create"), t(lang, "btn_users")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
 
 
-def pharmacies_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["➕ Apteka qo‘shish", "📋 Aptekalar ro‘yxati"], [BTN_MENU]])
+def doctors_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_doctor_add"), t(lang, "btn_doctors_list")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
 
 
-def daily_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["✍️ Hisobot qoldirish", "📋 Hisobotlar"], [BTN_MENU]])
+def pharmacies_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_pharmacy_add"), t(lang, "btn_pharmacies_list")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
 
 
-def requests_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["➕ Zayavka yaratish", "📋 Zayavkalar"], [BTN_MENU]])
+def daily_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_report_add"), t(lang, "btn_reports_list")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
 
 
-def finance_menu() -> ReplyKeyboardMarkup:
-    return reply_keyboard([["➕ Finans operatsiya", "📊 Finans hisobot"], [BTN_MENU]])
+def requests_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_request_add"), t(lang, "btn_requests_list")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
 
 
-def salary_menu(is_owner: bool = False) -> ReplyKeyboardMarkup:
-    rows = [["📋 Mening zarplatam"]]
+def finance_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_finance_add"), t(lang, "btn_finance_report")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
+
+
+def salary_menu(lang: str, is_owner: bool = False) -> ReplyKeyboardMarkup:
+    rows = [[t(lang, "btn_salary_my")]]
     if is_owner:
-        rows.insert(0, ["➕ Zarplata kiritish"])
-    rows.append([BTN_MENU])
-    return reply_keyboard(rows)
+        rows.insert(0, [t(lang, "btn_salary_add")])
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 
 
-def role_inline_keyboard(actor_role: Role) -> InlineKeyboardMarkup:
+def role_inline_keyboard(actor_role: Role, lang: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for role in ROLE_CREATE_ORDER:
         if can_create_role(actor_role, role):
-            rows.append([InlineKeyboardButton(text=ROLE_LABELS[role], callback_data=f"create_role:{role.value}")])
+            rows.append(
+                [InlineKeyboardButton(text=role_label(lang, role), callback_data=f"create_role:{role.value}")]
+            )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def report_target_keyboard() -> InlineKeyboardMarkup:
+def report_target_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Vrach", callback_data="report_target:doctor")],
-            [InlineKeyboardButton(text="Apteka", callback_data="report_target:pharmacy")],
-            [InlineKeyboardButton(text="Umumiy", callback_data="report_target:general")],
+            [InlineKeyboardButton(text=t(lang, "it_report_doctor"), callback_data="report_target:doctor")],
+            [InlineKeyboardButton(text=t(lang, "it_report_pharmacy"), callback_data="report_target:pharmacy")],
+            [InlineKeyboardButton(text=t(lang, "it_report_general"), callback_data="report_target:general")],
         ]
     )
 
 
-def request_status_keyboard(request_id: int) -> InlineKeyboardMarkup:
+def request_status_keyboard(request_id: int, lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Jarayonda", callback_data=f"request_status:{request_id}:{RequestStatus.IN_PROGRESS.value}"),
-                InlineKeyboardButton(text="Bajarildi", callback_data=f"request_status:{request_id}:{RequestStatus.DONE.value}"),
+                InlineKeyboardButton(
+                    text=t(lang, "it_status_in_progress"),
+                    callback_data=f"request_status:{request_id}:{RequestStatus.IN_PROGRESS.value}",
+                ),
+                InlineKeyboardButton(
+                    text=t(lang, "it_status_done"),
+                    callback_data=f"request_status:{request_id}:{RequestStatus.DONE.value}",
+                ),
             ],
-            [InlineKeyboardButton(text="Bekor qilish", callback_data=f"request_status:{request_id}:{RequestStatus.CANCELED.value}")],
+            [
+                InlineKeyboardButton(
+                    text=t(lang, "it_status_cancel"),
+                    callback_data=f"request_status:{request_id}:{RequestStatus.CANCELED.value}",
+                )
+            ],
         ]
     )
 
 
-def finance_type_keyboard() -> InlineKeyboardMarkup:
-    labels = {
-        FinanceType.INCOME: "Kirim",
-        FinanceType.EXPENSE: "Chiqim",
-        FinanceType.DEBT: "Qarzdorlik",
-        FinanceType.PAYMENT: "To'lov",
+def finance_type_keyboard(lang: str) -> InlineKeyboardMarkup:
+    keys = {
+        FinanceType.INCOME: "it_fin_income",
+        FinanceType.EXPENSE: "it_fin_expense",
+        FinanceType.DEBT: "it_fin_debt",
+        FinanceType.PAYMENT: "it_fin_payment",
     }
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=label, callback_data=f"finance_type:{operation_type.value}")]
-            for operation_type, label in labels.items()
+            [InlineKeyboardButton(text=t(lang, key), callback_data=f"finance_type:{operation_type.value}")]
+            for operation_type, key in keys.items()
         ]
     )

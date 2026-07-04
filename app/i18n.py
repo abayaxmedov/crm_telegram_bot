@@ -1,0 +1,520 @@
+from __future__ import annotations
+
+"""Ichki CRM bot uchun ikki tilli (Ўзбекча кирилл + Русский) lokalizatsiya moduli.
+
+Barcha foydalanuvchiga ko'rinadigan matnlar shu yerda saqlanadi. Handlerlar
+`t(lang, key, **kwargs)` orqali matn oladi. Tugmalarni til bo'yicha aniqlash
+uchun `variants(key)` barcha tillardagi variantlar to'plamini qaytaradi.
+"""
+
+from app.db.models import FinanceType, RequestStatus, Role
+
+
+# --- Tillar ------------------------------------------------------------------
+
+UZ_CYRL = "uz_cyrl"
+RU = "ru"
+
+LANGUAGES: tuple[str, ...] = (UZ_CYRL, RU)
+DEFAULT_LANGUAGE = UZ_CYRL
+
+# Til tanlash tugmalarida ko'rinadigan nomlar
+LANGUAGE_NAMES: dict[str, str] = {
+    UZ_CYRL: "🇺🇿 Ўзбекча (кирилл)",
+    RU: "🇷🇺 Русский",
+}
+
+
+# --- Tarjimalar katalogi -----------------------------------------------------
+# Har bir kalit: {UZ_CYRL: "...", RU: "..."}
+
+STRINGS: dict[str, dict[str, str]] = {
+    # ---- Til tanlash ----
+    "choose_language": {
+        UZ_CYRL: "🌐 <b>Тилни танланг</b> / Выберите язык:",
+        RU: "🌐 <b>Выберите язык</b> / Тилни танланг:",
+    },
+    "language_set": {
+        UZ_CYRL: "✅ Тил ўрнатилди: <b>Ўзбекча (кирилл)</b>",
+        RU: "✅ Язык установлен: <b>Русский</b>",
+    },
+
+    # ---- Umumiy yorliqlar ----
+    "your_role": {UZ_CYRL: "Сизнинг ролингиз", RU: "Ваша роль"},
+    "profile": {UZ_CYRL: "Профил", RU: "Профиль"},
+    "tg_id": {UZ_CYRL: "Telegram ID", RU: "Telegram ID"},
+
+    # ---- Bo'lim sarlavhalari (rasm caption fallback) ----
+    "title_welcome": {UZ_CYRL: "CRM ботга хуш келибсиз", RU: "Добро пожаловать в CRM-бот"},
+    "title_menu": {UZ_CYRL: "Асосий меню", RU: "Главное меню"},
+    "title_admin": {UZ_CYRL: "Админ панель", RU: "Админ-панель"},
+    "title_doctors": {UZ_CYRL: "Врачлар бўлими", RU: "Раздел «Врачи»"},
+    "title_pharmacies": {UZ_CYRL: "Аптекалар бўлими", RU: "Раздел «Аптеки»"},
+    "title_daily": {UZ_CYRL: "Кундалик ҳисобот", RU: "Ежедневный отчёт"},
+    "title_requests": {UZ_CYRL: "Заявкалар", RU: "Заявки"},
+    "title_finance": {UZ_CYRL: "Молия", RU: "Финансы"},
+    "title_salary": {UZ_CYRL: "Ойлик", RU: "Зарплата"},
+
+    # ---- Bo'lim matnlari ----
+    "welcome_text": {
+        UZ_CYRL: (
+            "<b>Ассалому алайкум!</b>\n\n"
+            "Сиз компаниянинг ёпиқ CRM ботига кирдингиз. Бу ерда ролингизга қараб "
+            "врачлар, аптекалар, кундалик ҳисоботлар, заявкалар, молия ва ойлик "
+            "бўлимлари очилади.\n\n"
+            "<i>Ҳар бир амал базага ёзилади ва эга (owner) томонидан назорат қилинади.</i>"
+        ),
+        RU: (
+            "<b>Здравствуйте!</b>\n\n"
+            "Вы вошли в закрытый CRM-бот компании. В зависимости от вашей роли здесь "
+            "открываются разделы: врачи, аптеки, ежедневные отчёты, заявки, финансы и зарплата.\n\n"
+            "<i>Каждое действие сохраняется в базе и контролируется владельцем.</i>"
+        ),
+    },
+    "menu_text": {
+        UZ_CYRL: (
+            "<b>Асосий меню</b>\n\n"
+            "Керакли бўлимни танланг. Бот сизга фақат рухсат берилган функцияларни кўрсатади."
+        ),
+        RU: (
+            "<b>Главное меню</b>\n\n"
+            "Выберите нужный раздел. Бот покажет только доступные вам функции."
+        ),
+    },
+    "admin_text": {
+        UZ_CYRL: (
+            "<b>Админ панель</b>\n\n"
+            "Фойдаланувчи яратиш invite-токен орқали ишлайди: аввал роль ва исм киритилади, "
+            "кейин бот махсус ҳавола беради. Бегона фойдаланувчилар /start босганда жавоб олмайди."
+        ),
+        RU: (
+            "<b>Админ-панель</b>\n\n"
+            "Создание пользователя работает через invite-токен: сначала указывается роль и имя, "
+            "затем бот выдаёт специальную ссылку. Посторонние пользователи не получат ответа при /start."
+        ),
+    },
+    "doctors_text": {
+        UZ_CYRL: (
+            "<b>Врачлар бўлими</b>\n\n"
+            "Врачнинг исм-фамилияси, телефон рақами, локацияси, синфи/категорияси "
+            "ва масъул менежер маълумотлари сақланади."
+        ),
+        RU: (
+            "<b>Раздел «Врачи»</b>\n\n"
+            "Сохраняются ФИО врача, номер телефона, локация, класс/категория "
+            "и данные ответственного менеджера."
+        ),
+    },
+    "pharmacies_text": {
+        UZ_CYRL: (
+            "<b>Аптекалар бўлими</b>\n\n"
+            "Аптека номи, локация, телефон, масъул шахс ва бириктирилган менежер "
+            "бўйича ёзувлар юритилади."
+        ),
+        RU: (
+            "<b>Раздел «Аптеки»</b>\n\n"
+            "Ведутся записи по названию аптеки, локации, телефону, ответственному лицу "
+            "и закреплённому менеджеру."
+        ),
+    },
+    "daily_text": {
+        UZ_CYRL: (
+            "<b>Кундалик</b>\n\n"
+            "Менежерлар ва ходимлар ёзма ёки овозли ҳисобот қолдириши мумкин. "
+            "Овозли файл Telegram file_id кўринишида базада сақланади."
+        ),
+        RU: (
+            "<b>Ежедневный отчёт</b>\n\n"
+            "Менеджеры и сотрудники могут оставлять письменный или голосовой отчёт. "
+            "Голосовой файл сохраняется в базе как Telegram file_id."
+        ),
+    },
+    "requests_text": {
+        UZ_CYRL: (
+            "<b>Заявкалар</b>\n\n"
+            "Янги заявка яратинг, ҳолатини кузатинг: янги, жараёнда, бажарилди ёки бекор қилинди."
+        ),
+        RU: (
+            "<b>Заявки</b>\n\n"
+            "Создавайте новую заявку и отслеживайте статус: новая, в процессе, выполнена или отменена."
+        ),
+    },
+    "finance_text": {
+        UZ_CYRL: (
+            "<b>Молия</b>\n\n"
+            "Кирим, чиқим, қарздорлик ва тўловлар эга назоратида сақланади."
+        ),
+        RU: (
+            "<b>Финансы</b>\n\n"
+            "Приходы, расходы, задолженности и оплаты хранятся под контролем владельца."
+        ),
+    },
+    "salary_text": {
+        UZ_CYRL: (
+            "<b>Ойлик</b>\n\n"
+            "Ойлик, бонус, жарима ва якуний сумма бўйича маълумотлар."
+        ),
+        RU: (
+            "<b>Зарплата</b>\n\n"
+            "Данные по окладу, бонусам, штрафам и итоговой сумме."
+        ),
+    },
+
+    # ---- Asosiy menyu tugmalari ----
+    "btn_menu": {UZ_CYRL: "🏠 Асосий меню", RU: "🏠 Главное меню"},
+    "btn_admin": {UZ_CYRL: "👑 Админ", RU: "👑 Админ"},
+    "btn_doctors": {UZ_CYRL: "🧑‍⚕️ Врачлар", RU: "🧑‍⚕️ Врачи"},
+    "btn_pharmacies": {UZ_CYRL: "💊 Аптекалар", RU: "💊 Аптеки"},
+    "btn_daily": {UZ_CYRL: "🗒 Кундалик", RU: "🗒 Ежедневный отчёт"},
+    "btn_requests": {UZ_CYRL: "📦 Заявкалар", RU: "📦 Заявки"},
+    "btn_finance": {UZ_CYRL: "💰 Молия", RU: "💰 Финансы"},
+    "btn_salary": {UZ_CYRL: "🧾 Ойлик", RU: "🧾 Зарплата"},
+    "btn_language": {UZ_CYRL: "🌐 Тил", RU: "🌐 Язык"},
+
+    # ---- Ichki menyu tugmalari ----
+    "btn_user_create": {UZ_CYRL: "➕ Фойдаланувчи қўшиш", RU: "➕ Создать пользователя"},
+    "btn_users": {UZ_CYRL: "👥 Фойдаланувчилар", RU: "👥 Пользователи"},
+    "btn_doctor_add": {UZ_CYRL: "➕ Врач қўшиш", RU: "➕ Добавить врача"},
+    "btn_doctors_list": {UZ_CYRL: "📋 Врачлар рўйхати", RU: "📋 Список врачей"},
+    "btn_pharmacy_add": {UZ_CYRL: "➕ Аптека қўшиш", RU: "➕ Добавить аптеку"},
+    "btn_pharmacies_list": {UZ_CYRL: "📋 Аптекалар рўйхати", RU: "📋 Список аптек"},
+    "btn_report_add": {UZ_CYRL: "✍️ Ҳисобот қолдириш", RU: "✍️ Оставить отчёт"},
+    "btn_reports_list": {UZ_CYRL: "📋 Ҳисоботлар", RU: "📋 Отчёты"},
+    "btn_request_add": {UZ_CYRL: "➕ Заявка яратиш", RU: "➕ Создать заявку"},
+    "btn_requests_list": {UZ_CYRL: "📋 Заявкалар", RU: "📋 Заявки"},
+    "btn_finance_add": {UZ_CYRL: "➕ Молия операцияси", RU: "➕ Финансовая операция"},
+    "btn_finance_report": {UZ_CYRL: "📊 Молия ҳисоботи", RU: "📊 Финансовый отчёт"},
+    "btn_salary_my": {UZ_CYRL: "📋 Менинг ойлигим", RU: "📋 Моя зарплата"},
+    "btn_salary_add": {UZ_CYRL: "➕ Ойлик киритиш", RU: "➕ Внести зарплату"},
+    "btn_phone_share": {UZ_CYRL: "📱 Телефон рақамни юбориш", RU: "📱 Отправить номер телефона"},
+
+    # ---- Placeholderlar ----
+    "ph_select_section": {UZ_CYRL: "Бўлимни танланг", RU: "Выберите раздел"},
+    "ph_crm_section": {UZ_CYRL: "CRM бўлимини танланг", RU: "Выберите раздел CRM"},
+    "ph_send_phone": {UZ_CYRL: "Телефон рақамингизни юборинг", RU: "Отправьте ваш номер телефона"},
+
+    # ---- Inline: hisobot maqsadi ----
+    "it_report_doctor": {UZ_CYRL: "Врач", RU: "Врач"},
+    "it_report_pharmacy": {UZ_CYRL: "Аптека", RU: "Аптека"},
+    "it_report_general": {UZ_CYRL: "Умумий", RU: "Общий"},
+
+    # ---- Inline: zayavka holati ----
+    "it_status_in_progress": {UZ_CYRL: "Жараёнда", RU: "В процессе"},
+    "it_status_done": {UZ_CYRL: "Бажарилди", RU: "Выполнено"},
+    "it_status_cancel": {UZ_CYRL: "Бекор қилиш", RU: "Отменить"},
+
+    # ---- Inline: moliya turi ----
+    "it_fin_income": {UZ_CYRL: "Кирим", RU: "Приход"},
+    "it_fin_expense": {UZ_CYRL: "Чиқим", RU: "Расход"},
+    "it_fin_debt": {UZ_CYRL: "Қарздорлик", RU: "Задолженность"},
+    "it_fin_payment": {UZ_CYRL: "Тўлов", RU: "Оплата"},
+
+    # ---- Rollar ----
+    "role_owner": {UZ_CYRL: "Эга (Owner)", RU: "Владелец"},
+    "role_manager": {UZ_CYRL: "Менежер", RU: "Менеджер"},
+    "role_operator": {UZ_CYRL: "Оператор", RU: "Оператор"},
+    "role_assistant": {UZ_CYRL: "Оператор ёрдамчиси", RU: "Помощник оператора"},
+    "role_doctor": {UZ_CYRL: "Врач", RU: "Врач"},
+    "role_pharmacy": {UZ_CYRL: "Аптека", RU: "Аптека"},
+
+    # ---- Zayavka holati (ko'rsatish) ----
+    "status_new": {UZ_CYRL: "Янги", RU: "Новый"},
+    "status_in_progress": {UZ_CYRL: "Жараёнда", RU: "В процессе"},
+    "status_done": {UZ_CYRL: "Бажарилди", RU: "Выполнено"},
+    "status_canceled": {UZ_CYRL: "Бекор қилинган", RU: "Отменён"},
+
+    # ---- Moliya turi (ko'rsatish) ----
+    "fin_income": {UZ_CYRL: "Кирим", RU: "Приход"},
+    "fin_expense": {UZ_CYRL: "Чиқим", RU: "Расход"},
+    "fin_debt": {UZ_CYRL: "Қарздорлик", RU: "Задолженность"},
+    "fin_payment": {UZ_CYRL: "Тўлов", RU: "Оплата"},
+
+    # ---- common.py ----
+    "continue_send_phone": {
+        UZ_CYRL: "Давом этиш учун телефон рақамингизни юборинг.",
+        RU: "Для продолжения отправьте ваш номер телефона.",
+    },
+    "phone_too_short": {
+        UZ_CYRL: "Телефон рақам жуда қисқа. Масалан: +998901234567",
+        RU: "Номер телефона слишком короткий. Например: +998901234567",
+    },
+    "phone_own_contact": {
+        UZ_CYRL: "Илтимос, ўзингизнинг Telegram контактингизни юборинг.",
+        RU: "Пожалуйста, отправьте свой собственный Telegram-контакт.",
+    },
+    "phone_saved": {
+        UZ_CYRL: "<b>Телефон рақамингиз сақланди.</b>",
+        RU: "<b>Ваш номер телефона сохранён.</b>",
+    },
+    "help_text": {
+        UZ_CYRL: (
+            "<b>Ёрдам</b>\n\n"
+            "Бот ёпиқ CRM сифатида ишлайди. Барча бўлимлар роль бўйича очилади.\n"
+            "Муаммо бўлса эгага мурожаат қилинг ёки /id орқали Telegram ID ни юборинг."
+        ),
+        RU: (
+            "<b>Помощь</b>\n\n"
+            "Бот работает как закрытый CRM. Все разделы открываются по роли.\n"
+            "При проблемах обратитесь к владельцу или отправьте свой Telegram ID через /id."
+        ),
+    },
+    "fallback": {
+        UZ_CYRL: "Бўлимни менюдан танланг ёки /menu буйруғини юборинг.",
+        RU: "Выберите раздел из меню или отправьте команду /menu.",
+    },
+
+    # ---- admin.py ----
+    "section_closed": {UZ_CYRL: "Бу бўлим сизга очилмаган.", RU: "Этот раздел вам недоступен."},
+    "no_perm_user_create": {
+        UZ_CYRL: "Фойдаланувчи яратиш учун рухсат йўқ.",
+        RU: "Нет прав для создания пользователя.",
+    },
+    "choose_new_role": {
+        UZ_CYRL: "Янги фойдаланувчи ролини танланг:",
+        RU: "Выберите роль нового пользователя:",
+    },
+    "role_not_allowed": {
+        UZ_CYRL: "Бу ролни яратишга рухсат йўқ.",
+        RU: "Нет прав для создания этой роли.",
+    },
+    "enter_fullname_for_role": {
+        UZ_CYRL: "{role} учун исм-фамилияни киритинг:",
+        RU: "Введите ФИО для роли «{role}»:",
+    },
+    "fullname_too_short": {
+        UZ_CYRL: "Исм-фамилия камида 3 та белгидан иборат бўлсин.",
+        RU: "ФИО должно содержать минимум 3 символа.",
+    },
+    "invite_ready": {
+        UZ_CYRL: (
+            "<b>Invite тайёр.</b>\n\n"
+            "<b>Фойдаланувчи:</b> {name}\n"
+            "<b>Роль:</b> {role}\n"
+            "<b>Ҳавола:</b> {link}\n\n"
+            "Фойдаланувчи шу ҳавола орқали кирганда Telegram ID базага бириктирилади "
+            "ва телефон рақами ундан сўралади."
+        ),
+        RU: (
+            "<b>Invite готов.</b>\n\n"
+            "<b>Пользователь:</b> {name}\n"
+            "<b>Роль:</b> {role}\n"
+            "<b>Ссылка:</b> {link}\n\n"
+            "Когда пользователь войдёт по этой ссылке, его Telegram ID привяжется к базе, "
+            "а номер телефона будет запрошен у него."
+        ),
+    },
+    "users_list_closed": {
+        UZ_CYRL: "Фойдаланувчилар рўйхати сизга очилмаган.",
+        RU: "Список пользователей вам недоступен.",
+    },
+    "no_users": {UZ_CYRL: "Ҳали фойдаланувчилар йўқ.", RU: "Пока нет пользователей."},
+    "last_users": {UZ_CYRL: "<b>Охирги фойдаланувчилар</b>", RU: "<b>Последние пользователи</b>"},
+    "invite_pending": {UZ_CYRL: "invite кутилмоқда", RU: "ожидается invite"},
+    "user_active": {UZ_CYRL: "актив", RU: "активен"},
+    "user_inactive": {UZ_CYRL: "ноактив", RU: "неактивен"},
+
+    # ---- directories.py ----
+    "no_perm_doctor_add": {UZ_CYRL: "Врач қўшиш учун рухсат йўқ.", RU: "Нет прав для добавления врача."},
+    "enter_doctor_fullname": {
+        UZ_CYRL: "Врачнинг тўлиқ исм-фамилиясини киритинг:",
+        RU: "Введите полное ФИО врача:",
+    },
+    "enter_phone": {UZ_CYRL: "Телефон рақами:", RU: "Номер телефона:"},
+    "enter_location": {UZ_CYRL: "Локация ёки манзил:", RU: "Локация или адрес:"},
+    "enter_category": {UZ_CYRL: "Синф/категория:", RU: "Класс/категория:"},
+    "enter_notes_dash": {
+        UZ_CYRL: "Изоҳ. Агар изоҳ йўқ бўлса <code>-</code> юборинг:",
+        RU: "Примечание. Если примечания нет, отправьте <code>-</code>:",
+    },
+    "doctor_saved": {UZ_CYRL: "<b>Врач сақланди:</b> #{id} {name}", RU: "<b>Врач сохранён:</b> #{id} {name}"},
+    "doctors_empty": {UZ_CYRL: "Врачлар рўйхати ҳали бўш.", RU: "Список врачей пока пуст."},
+    "doctors_header": {UZ_CYRL: "<b>Врачлар</b>", RU: "<b>Врачи</b>"},
+    "no_perm_pharmacy_add": {UZ_CYRL: "Аптека қўшиш учун рухсат йўқ.", RU: "Нет прав для добавления аптеки."},
+    "enter_pharmacy_name": {UZ_CYRL: "Аптека номини киритинг:", RU: "Введите название аптеки:"},
+    "enter_responsible": {UZ_CYRL: "Масъул шахс:", RU: "Ответственное лицо:"},
+    "pharmacy_saved": {
+        UZ_CYRL: "<b>Аптека сақланди:</b> #{id} {name}",
+        RU: "<b>Аптека сохранена:</b> #{id} {name}",
+    },
+    "pharmacies_empty": {UZ_CYRL: "Аптекалар рўйхати ҳали бўш.", RU: "Список аптек пока пуст."},
+    "pharmacies_header": {UZ_CYRL: "<b>Аптекалар</b>", RU: "<b>Аптеки</b>"},
+
+    # ---- reports.py ----
+    "report_target_q": {UZ_CYRL: "Ҳисобот нимага тегишли?", RU: "К чему относится отчёт?"},
+    "report_target_name_q": {
+        UZ_CYRL: "Таргет номи ёки изоҳини киритинг. Умумий ҳисобот бўлса <code>-</code> юборинг:",
+        RU: "Введите название цели или примечание. Для общего отчёта отправьте <code>-</code>:",
+    },
+    "report_body_q": {
+        UZ_CYRL: "Ҳисобот матнини ёзинг ёки овозли хабар юборинг:",
+        RU: "Напишите текст отчёта или отправьте голосовое сообщение:",
+    },
+    "report_voice_saved": {UZ_CYRL: "<b>Овозли ҳисобот сақланди:</b> #{id}", RU: "<b>Голосовой отчёт сохранён:</b> #{id}"},
+    "report_saved": {UZ_CYRL: "<b>Ҳисобот сақланди:</b> #{id}", RU: "<b>Отчёт сохранён:</b> #{id}"},
+    "report_body_empty": {UZ_CYRL: "Ҳисобот матни бўш бўлмасин.", RU: "Текст отчёта не должен быть пустым."},
+    "reports_empty": {UZ_CYRL: "Ҳали кундалик ҳисоботлар йўқ.", RU: "Пока нет ежедневных отчётов."},
+    "reports_header": {UZ_CYRL: "<b>Кундалик ҳисоботлар</b>", RU: "<b>Ежедневные отчёты</b>"},
+
+    # ---- requests.py ----
+    "requests_closed": {UZ_CYRL: "Заявкалар бўлими сизга очилмаган.", RU: "Раздел заявок вам недоступен."},
+    "no_perm_request_add": {UZ_CYRL: "Заявка яратиш учун рухсат йўқ.", RU: "Нет прав для создания заявки."},
+    "enter_request_title": {UZ_CYRL: "Заявка сарлавҳасини киритинг:", RU: "Введите заголовок заявки:"},
+    "title_too_short": {UZ_CYRL: "Сарлавҳа жуда қисқа.", RU: "Заголовок слишком короткий."},
+    "enter_request_desc": {
+        UZ_CYRL: "Заявка тавсифи. Агар керак бўлмаса <code>-</code> юборинг:",
+        RU: "Описание заявки. Если не нужно, отправьте <code>-</code>:",
+    },
+    "request_created": {UZ_CYRL: "<b>Заявка яратилди:</b> #{id} {title}", RU: "<b>Заявка создана:</b> #{id} {title}"},
+    "requests_empty": {UZ_CYRL: "Заявкалар ҳали йўқ.", RU: "Заявок пока нет."},
+    "label_status": {UZ_CYRL: "Ҳолат", RU: "Статус"},
+    "label_desc": {UZ_CYRL: "Тавсиф", RU: "Описание"},
+    "no_perm_status": {UZ_CYRL: "Ҳолатни ўзгартириш учун рухсат йўқ.", RU: "Нет прав для изменения статуса."},
+    "request_not_found": {UZ_CYRL: "Заявка топилмади.", RU: "Заявка не найдена."},
+    "status_updated": {UZ_CYRL: "Ҳолат янгиланди.", RU: "Статус обновлён."},
+
+    # ---- finance.py ----
+    "finance_owner_only": {UZ_CYRL: "Молия бўлими фақат эга учун очиқ.", RU: "Раздел финансов доступен только владельцу."},
+    "no_perm_finance_op": {UZ_CYRL: "Молия операцияси учун рухсат йўқ.", RU: "Нет прав для финансовой операции."},
+    "choose_op_type": {UZ_CYRL: "Операция турини танланг:", RU: "Выберите тип операции:"},
+    "no_perm_generic": {UZ_CYRL: "Рухсат йўқ.", RU: "Нет прав."},
+    "enter_amount": {UZ_CYRL: "Суммани киритинг. Масалан: 1250000", RU: "Введите сумму. Например: 1250000"},
+    "amount_invalid": {UZ_CYRL: "Сумма нотўғри. Фақат рақам юборинг.", RU: "Неверная сумма. Отправьте только число."},
+    "amount_gt_zero": {UZ_CYRL: "Сумма 0 дан катта бўлсин.", RU: "Сумма должна быть больше 0."},
+    "enter_op_name": {UZ_CYRL: "Операция номи:", RU: "Название операции:"},
+    "name_too_short": {UZ_CYRL: "Ном жуда қисқа.", RU: "Название слишком короткое."},
+    "enter_extra_desc": {
+        UZ_CYRL: "Қўшимча тавсиф. Керак бўлмаса <code>-</code> юборинг:",
+        RU: "Дополнительное описание. Если не нужно, отправьте <code>-</code>:",
+    },
+    "finance_op_saved": {
+        UZ_CYRL: "<b>Молия операцияси сақланди:</b> #{id} {title}",
+        RU: "<b>Финансовая операция сохранена:</b> #{id} {title}",
+    },
+    "finance_report_owner_only": {
+        UZ_CYRL: "Молия ҳисоботи фақат эга учун очиқ.",
+        RU: "Финансовый отчёт доступен только владельцу.",
+    },
+    "finance_report": {
+        UZ_CYRL: (
+            "<b>Молия ҳисоботи</b>\n\n"
+            "Кирим: {income}\n"
+            "Чиқим: {expense}\n"
+            "Қарздорлик: {debt}\n"
+            "Тўлов: {payment}\n\n"
+            "<b>Охирги операциялар</b>\n"
+        ),
+        RU: (
+            "<b>Финансовый отчёт</b>\n\n"
+            "Приход: {income}\n"
+            "Расход: {expense}\n"
+            "Задолженность: {debt}\n"
+            "Оплата: {payment}\n\n"
+            "<b>Последние операции</b>\n"
+        ),
+    },
+
+    # ---- salary.py ----
+    "salary_empty_user": {UZ_CYRL: "Сиз учун ойлик ёзувлари ҳали йўқ.", RU: "Записей о зарплате для вас пока нет."},
+    "salary_my_header": {UZ_CYRL: "<b>Менинг ойлигим</b>", RU: "<b>Моя зарплата</b>"},
+    "salary_base": {UZ_CYRL: "асосий", RU: "оклад"},
+    "salary_bonus": {UZ_CYRL: "бонус", RU: "бонус"},
+    "salary_penalty": {UZ_CYRL: "жарима", RU: "штраф"},
+    "salary_total": {UZ_CYRL: "жами", RU: "итого"},
+    "salary_owner_only": {UZ_CYRL: "Ойлик киритиш фақат эга учун очиқ.", RU: "Внесение зарплаты доступно только владельцу."},
+    "enter_user_tg_id": {UZ_CYRL: "Фойдаланувчи Telegram ID сини киритинг:", RU: "Введите Telegram ID пользователя:"},
+    "tg_id_must_be_number": {UZ_CYRL: "Telegram ID рақам бўлиши керак.", RU: "Telegram ID должен быть числом."},
+    "tg_id_not_found": {UZ_CYRL: "Бу Telegram ID базада топилмади.", RU: "Этот Telegram ID не найден в базе."},
+    "enter_month": {UZ_CYRL: "Ой номи. Масалан: Июн 2026", RU: "Название месяца. Например: Июнь 2026"},
+    "enter_base_salary": {UZ_CYRL: "Асосий ойлик:", RU: "Оклад:"},
+    "enter_bonus": {UZ_CYRL: "Бонус:", RU: "Бонус:"},
+    "enter_penalty": {UZ_CYRL: "Жарима:", RU: "Штраф:"},
+    "amount_invalid_simple": {UZ_CYRL: "Сумма нотўғри.", RU: "Неверная сумма."},
+    "salary_saved": {UZ_CYRL: "<b>Ойлик сақланди:</b> {name} | {total}", RU: "<b>Зарплата сохранена:</b> {name} | {total}"},
+
+    # ---- Bot profili ----
+    "bot_description": {
+        UZ_CYRL: (
+            "Дорихона, врачлар, менежерлар, заявкалар, кундаликлар, молия ва ойлик "
+            "жараёнлари учун ёпиқ ички CRM бот."
+        ),
+        RU: (
+            "Закрытый внутренний CRM-бот для процессов: аптеки, врачи, менеджеры, "
+            "заявки, ежедневные отчёты, финансы и зарплата."
+        ),
+    },
+    "bot_short_description": {
+        UZ_CYRL: "Ички CRM: врачлар, аптекалар, кундалик, молия ва заявкалар.",
+        RU: "Внутренний CRM: врачи, аптеки, отчёты, финансы и заявки.",
+    },
+    "cmd_start": {UZ_CYRL: "Ботни ишга тушириш", RU: "Запустить бота"},
+    "cmd_menu": {UZ_CYRL: "Асосий меню", RU: "Главное меню"},
+    "cmd_help": {UZ_CYRL: "Ёрдам", RU: "Помощь"},
+    "cmd_id": {UZ_CYRL: "Telegram ID кўриш", RU: "Показать Telegram ID"},
+    "cmd_language": {UZ_CYRL: "Тилни ўзгартириш", RU: "Сменить язык"},
+}
+
+
+# --- Enum -> tarjima kaliti xaritalari ---------------------------------------
+
+ROLE_KEYS: dict[Role, str] = {
+    Role.OWNER: "role_owner",
+    Role.MANAGER: "role_manager",
+    Role.OPERATOR: "role_operator",
+    Role.ASSISTANT: "role_assistant",
+    Role.DOCTOR: "role_doctor",
+    Role.PHARMACY: "role_pharmacy",
+}
+
+STATUS_KEYS: dict[RequestStatus, str] = {
+    RequestStatus.NEW: "status_new",
+    RequestStatus.IN_PROGRESS: "status_in_progress",
+    RequestStatus.DONE: "status_done",
+    RequestStatus.CANCELED: "status_canceled",
+}
+
+FINANCE_KEYS: dict[FinanceType, str] = {
+    FinanceType.INCOME: "fin_income",
+    FinanceType.EXPENSE: "fin_expense",
+    FinanceType.DEBT: "fin_debt",
+    FinanceType.PAYMENT: "fin_payment",
+}
+
+
+# --- Helperlar ---------------------------------------------------------------
+
+def normalize(lang: str | None) -> str:
+    """Noma'lum yoki bo'sh tilni default tilga keltiradi."""
+    return lang if lang in LANGUAGES else DEFAULT_LANGUAGE
+
+
+def t(lang: str | None, key: str, **kwargs: object) -> str:
+    """Kalit bo'yicha tanlangan tildagi matnni qaytaradi va format qiladi."""
+    entry = STRINGS.get(key)
+    if entry is None:
+        return key
+    text = entry.get(normalize(lang)) or entry.get(DEFAULT_LANGUAGE) or key
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
+
+def variants(key: str) -> set[str]:
+    """Berilgan tugma kaliti uchun barcha tillardagi matn variantlari to'plami.
+
+    Reply-tugmalarni foydalanuvchi tilidan qat'i nazar aniqlash uchun ishlatiladi
+    (masalan: F.text.in_(variants("btn_menu"))).
+    """
+    entry = STRINGS.get(key, {})
+    return set(entry.values())
+
+
+def role_label(lang: str | None, role: Role) -> str:
+    return t(lang, ROLE_KEYS[role])
+
+
+def status_label(lang: str | None, status: RequestStatus) -> str:
+    return t(lang, STATUS_KEYS[status])
+
+
+def finance_label(lang: str | None, finance_type: FinanceType) -> str:
+    return t(lang, FINANCE_KEYS[finance_type])
