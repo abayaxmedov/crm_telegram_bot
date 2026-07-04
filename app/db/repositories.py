@@ -5,21 +5,31 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     AuditLog,
+    Contract,
+    ContractStatus,
     DailyReport,
     Doctor,
+    Drug,
     FinanceOperation,
     FinanceType,
     Pharmacy,
+    RepPayment,
+    RepPaymentKind,
     Request,
     RequestStatus,
     Role,
     Salary,
+    Sale,
+    SaleItem,
     User,
+    VisitDiary,
+    WarehouseRequest,
+    WarehouseRequestItem,
 )
 
 
@@ -144,6 +154,8 @@ async def add_pharmacy(
     responsible_person: str | None,
     manager: User,
     notes: str | None,
+    inn: str | None = None,
+    filial: str | None = None,
 ) -> Pharmacy:
     pharmacy = Pharmacy(
         name=name,
@@ -152,6 +164,8 @@ async def add_pharmacy(
         responsible_person=responsible_person,
         manager_id=manager.id,
         notes=notes,
+        inn=inn,
+        filial=filial,
     )
     session.add(pharmacy)
     await session.flush()
@@ -286,6 +300,195 @@ async def list_salaries_for_user(session: AsyncSession, user: User, limit: int =
         select(Salary).where(Salary.user_id == user.id).order_by(desc(Salary.created_at)).limit(limit)
     )
     return list(result.scalars())
+
+
+# ==================== Медвакил (медпредставитель) ====================
+
+
+async def list_doctors_for_manager(session: AsyncSession, manager: User, limit: int = 50) -> list[Doctor]:
+    result = await session.execute(
+        select(Doctor).where(Doctor.manager_id == manager.id).order_by(desc(Doctor.created_at)).limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def list_doctors_with_bonus(session: AsyncSession, manager: User) -> list[Doctor]:
+    result = await session.execute(
+        select(Doctor)
+        .where(Doctor.manager_id == manager.id, Doctor.bonus_balance > 0)
+        .order_by(desc(Doctor.bonus_balance))
+    )
+    return list(result.scalars())
+
+
+async def list_pharmacies_for_manager(session: AsyncSession, manager: User, limit: int = 50) -> list[Pharmacy]:
+    result = await session.execute(
+        select(Pharmacy).where(Pharmacy.manager_id == manager.id).order_by(desc(Pharmacy.created_at)).limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def search_pharmacies(session: AsyncSession, query: str, limit: int = 10) -> list[Pharmacy]:
+    like = f"%{query.strip()}%"
+    result = await session.execute(
+        select(Pharmacy).where(or_(Pharmacy.name.ilike(like), Pharmacy.inn.ilike(like))).limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def get_doctor(session: AsyncSession, doctor_id: int) -> Doctor | None:
+    return (await session.execute(select(Doctor).where(Doctor.id == doctor_id))).scalar_one_or_none()
+
+
+async def get_pharmacy(session: AsyncSession, pharmacy_id: int) -> Pharmacy | None:
+    return (await session.execute(select(Pharmacy).where(Pharmacy.id == pharmacy_id))).scalar_one_or_none()
+
+
+async def list_active_drugs(session: AsyncSession) -> list[Drug]:
+    result = await session.execute(select(Drug).where(Drug.is_active.is_(True)).order_by(Drug.name))
+    return list(result.scalars())
+
+
+async def get_drug(session: AsyncSession, drug_id: int) -> Drug | None:
+    return (await session.execute(select(Drug).where(Drug.id == drug_id))).scalar_one_or_none()
+
+
+async def create_sale(
+    session: AsyncSession,
+    *,
+    rep: User,
+    pharmacy: Pharmacy | None,
+    doctor: Doctor | None,
+    items: list[tuple[Drug, int]],
+) -> Sale:
+    sale = Sale(
+        rep_id=rep.id,
+        pharmacy_id=pharmacy.id if pharmacy else None,
+        doctor_id=doctor.id if doctor else None,
+    )
+    session.add(sale)
+    await session.flush()
+
+    total_bonus = Decimal("0")
+    for drug, qty in items:
+        bonus = (drug.doctor_bonus_per_pack or Decimal("0")) * qty
+        total_bonus += bonus
+        session.add(
+            SaleItem(sale_id=sale.id, drug_id=drug.id, drug_name=drug.name, quantity=qty, bonus=bonus)
+        )
+        drug.stock = max(0, drug.stock - qty)
+
+    sale.total_bonus = total_bonus
+    if doctor is not None:
+        doctor.bonus_balance = (doctor.bonus_balance or Decimal("0")) + total_bonus
+
+    await log_action(session, rep, "sale_created", "sale", str(sale.id), f"bonus={total_bonus}")
+    return sale
+
+
+async def list_contracts_for_pharmacy(session: AsyncSession, pharmacy_id: int) -> list[Contract]:
+    result = await session.execute(
+        select(Contract)
+        .where(Contract.pharmacy_id == pharmacy_id, Contract.status == ContractStatus.ACTIVE)
+        .order_by(desc(Contract.created_at))
+    )
+    return list(result.scalars())
+
+
+async def get_contract(session: AsyncSession, contract_id: int) -> Contract | None:
+    return (await session.execute(select(Contract).where(Contract.id == contract_id))).scalar_one_or_none()
+
+
+async def request_contract(session: AsyncSession, *, pharmacy: Pharmacy, rep: User) -> Contract:
+    contract = Contract(
+        pharmacy_id=pharmacy.id,
+        number="—",
+        status=ContractStatus.REQUESTED,
+        requested_by_id=rep.id,
+    )
+    session.add(contract)
+    await session.flush()
+    await log_action(session, rep, "contract_requested", "contract", str(contract.id), pharmacy.name)
+    return contract
+
+
+async def create_warehouse_request(
+    session: AsyncSession,
+    *,
+    rep: User,
+    pharmacy: Pharmacy | None,
+    contract: Contract | None,
+    items: list[tuple[Drug, int]],
+) -> WarehouseRequest:
+    request = WarehouseRequest(
+        rep_id=rep.id,
+        pharmacy_id=pharmacy.id if pharmacy else None,
+        contract_id=contract.id if contract else None,
+    )
+    session.add(request)
+    await session.flush()
+    for drug, qty in items:
+        session.add(
+            WarehouseRequestItem(request_id=request.id, drug_id=drug.id, drug_name=drug.name, quantity=qty)
+        )
+    await log_action(session, rep, "warehouse_request_created", "warehouse_request", str(request.id), None)
+    return request
+
+
+async def pay_doctor_bonus(session: AsyncSession, *, rep: User, doctor: Doctor, amount: Decimal) -> None:
+    rep.balance = (rep.balance or Decimal("0")) - amount
+    doctor.bonus_balance = (doctor.bonus_balance or Decimal("0")) - amount
+    session.add(RepPayment(rep_id=rep.id, doctor_id=doctor.id, kind=RepPaymentKind.PAYOUT, amount=amount))
+    await log_action(session, rep, "bonus_payout", "doctor", str(doctor.id), str(amount))
+
+
+async def return_to_admin(session: AsyncSession, *, rep: User, amount: Decimal) -> None:
+    rep.balance = (rep.balance or Decimal("0")) - amount
+    session.add(RepPayment(rep_id=rep.id, doctor_id=None, kind=RepPaymentKind.RETURN, amount=amount))
+    await log_action(session, rep, "podotchet_return", "user", str(rep.id), str(amount))
+
+
+async def issue_podotchet(session: AsyncSession, *, rep: User, amount: Decimal) -> None:
+    rep.balance = (rep.balance or Decimal("0")) + amount
+    session.add(RepPayment(rep_id=rep.id, doctor_id=None, kind=RepPaymentKind.ISSUE, amount=amount))
+
+
+async def create_visit(
+    session: AsyncSession, *, rep: User, latitude, longitude, note: str | None
+) -> VisitDiary:
+    visit = VisitDiary(rep_id=rep.id, latitude=latitude, longitude=longitude, note=note)
+    session.add(visit)
+    await session.flush()
+    await log_action(session, rep, "visit_created", "visit", str(visit.id), None)
+    return visit
+
+
+async def list_visits(session: AsyncSession, rep: User, limit: int = 5) -> list[VisitDiary]:
+    result = await session.execute(
+        select(VisitDiary).where(VisitDiary.rep_id == rep.id).order_by(desc(VisitDiary.created_at)).limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def search_visits(session: AsyncSession, rep: User, query: str, limit: int = 10) -> list[VisitDiary]:
+    like = f"%{query.strip()}%"
+    result = await session.execute(
+        select(VisitDiary)
+        .where(VisitDiary.rep_id == rep.id, VisitDiary.note.ilike(like))
+        .order_by(desc(VisitDiary.created_at))
+        .limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def sum_sales_qty(session: AsyncSession, *, rep_id: int, drug_id: int, start, end) -> int:
+    result = await session.execute(
+        select(func.coalesce(func.sum(SaleItem.quantity), 0))
+        .select_from(SaleItem)
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(Sale.rep_id == rep_id, SaleItem.drug_id == drug_id, SaleItem.created_at >= start, SaleItem.created_at <= end)
+    )
+    return int(result.scalar_one() or 0)
 
 
 async def log_action(

@@ -21,6 +21,7 @@ class LanguageMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         lang = DEFAULT_LANGUAGE
+        db_user = None
         session = data.get("session")
         tg_user: TgUser | None = data.get("event_from_user")
 
@@ -28,7 +29,7 @@ class LanguageMiddleware(BaseMiddleware):
             db_user = await get_user_by_telegram_id(session, tg_user.id)
             if db_user is not None and db_user.language:
                 lang = normalize(db_user.language)
-            data["db_user"] = db_user
 
+        data["db_user"] = db_user
         data["lang"] = lang
         return await handler(event, data)

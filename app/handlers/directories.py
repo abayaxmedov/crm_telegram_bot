@@ -8,7 +8,15 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.repositories import add_doctor, add_pharmacy, list_doctors, list_pharmacies
+from app.db.models import Role
+from app.db.repositories import (
+    add_doctor,
+    add_pharmacy,
+    list_doctors,
+    list_doctors_for_manager,
+    list_pharmacies,
+    list_pharmacies_for_manager,
+)
 from app.handlers.utils import clean_optional, require_user, safe
 from app.i18n import t, variants
 from app.keyboards.reply import doctors_menu, pharmacies_menu
@@ -31,6 +39,8 @@ class PharmacyFlow(StatesGroup):
     phone = State()
     location = State()
     responsible = State()
+    inn = State()
+    filial = State()
     notes = State()
 
 
@@ -113,12 +123,17 @@ async def doctors_list(message: Message, session: AsyncSession, lang: str) -> No
     user = await require_user(message, session)
     if user is None:
         return
-    doctors = await list_doctors(session)
+    doctors = (
+        await list_doctors_for_manager(session, user)
+        if user.role == Role.MANAGER
+        else await list_doctors(session)
+    )
     if not doctors:
         await message.answer(t(lang, "doctors_empty"), reply_markup=doctors_menu(lang))
         return
     text = t(lang, "doctors_header") + "\n\n" + "\n".join(
-        f"#{doctor.id} | {safe(doctor.full_name)} | {safe(doctor.phone_number)} | {safe(doctor.class_category)}"
+        f"#{doctor.id} | {safe(doctor.full_name)} | {safe(doctor.phone_number)} | "
+        f"{t(lang, 'doctor_bonus')}: {doctor.bonus_balance:,.2f}"
         for doctor in doctors
     )
     await message.answer(text, reply_markup=doctors_menu(lang))
@@ -170,6 +185,20 @@ async def pharmacy_location(message: Message, state: FSMContext, lang: str) -> N
 @router.message(PharmacyFlow.responsible)
 async def pharmacy_responsible(message: Message, state: FSMContext, lang: str) -> None:
     await state.update_data(responsible=clean_optional(message.text))
+    await state.set_state(PharmacyFlow.inn)
+    await message.answer(t(lang, "enter_pharmacy_inn"))
+
+
+@router.message(PharmacyFlow.inn)
+async def pharmacy_inn(message: Message, state: FSMContext, lang: str) -> None:
+    await state.update_data(inn=clean_optional(message.text))
+    await state.set_state(PharmacyFlow.filial)
+    await message.answer(t(lang, "enter_pharmacy_filial"))
+
+
+@router.message(PharmacyFlow.filial)
+async def pharmacy_filial(message: Message, state: FSMContext, lang: str) -> None:
+    await state.update_data(filial=clean_optional(message.text))
     await state.set_state(PharmacyFlow.notes)
     await message.answer(t(lang, "enter_notes_dash"))
 
@@ -188,6 +217,8 @@ async def pharmacy_finish(message: Message, session: AsyncSession, state: FSMCon
         responsible_person=data.get("responsible"),
         manager=user,
         notes=clean_optional(message.text),
+        inn=data.get("inn"),
+        filial=data.get("filial"),
     )
     await session.commit()
     await state.clear()
@@ -205,12 +236,18 @@ async def pharmacies_list(message: Message, session: AsyncSession, lang: str) ->
     user = await require_user(message, session)
     if user is None:
         return
-    pharmacies = await list_pharmacies(session)
+    pharmacies = (
+        await list_pharmacies_for_manager(session, user)
+        if user.role == Role.MANAGER
+        else await list_pharmacies(session)
+    )
     if not pharmacies:
         await message.answer(t(lang, "pharmacies_empty"), reply_markup=pharmacies_menu(lang))
         return
     text = t(lang, "pharmacies_header") + "\n\n" + "\n".join(
-        f"#{pharmacy.id} | {safe(pharmacy.name)} | {safe(pharmacy.phone_number)} | {safe(pharmacy.responsible_person)}"
+        f"#{pharmacy.id} | {safe(pharmacy.name)}"
+        + (f" (Ф: {safe(pharmacy.filial)})" if pharmacy.filial else "")
+        + f" | ИНН {safe(pharmacy.inn)} | {safe(pharmacy.responsible_person)}"
         for pharmacy in pharmacies
     )
     await message.answer(text, reply_markup=pharmacies_menu(lang))

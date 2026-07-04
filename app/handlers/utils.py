@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
 from app.db.repositories import get_user_by_telegram_id
-from app.i18n import t
+from app.i18n import role_label, t
 
 
 async def require_user(message: Message, session: AsyncSession) -> User | None:
@@ -44,4 +44,4 @@ def safe(value: object | None) -> str:
 def user_line(user: User, lang: str) -> str:
     tg = user.telegram_id if user.telegram_id is not None else t(lang, "invite_pending")
     active = t(lang, "user_active") if user.is_active else t(lang, "user_inactive")
-    return f"#{user.id} | {safe(user.full_name)} | {user.role.value} | {tg} | {active}"
+    return f"#{user.id} | {safe(user.full_name)} | {role_label(lang, user.role)} | {tg} | {active}"

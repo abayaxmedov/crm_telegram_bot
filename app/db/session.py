@@ -18,9 +18,21 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     """create_all mavjud jadvalga ustun qo'shmaydi, shuning uchun yetishmayotgan
     ustunlarni qo'lda qo'shamiz. Postgres va SQLite uchun mos ishlaydi."""
     inspector = inspect(sync_conn)
-    user_columns = {column["name"] for column in inspector.get_columns("users")}
-    if "language" not in user_columns:
-        sync_conn.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(16)"))
+
+    def cols(table: str) -> set[str]:
+        return {column["name"] for column in inspector.get_columns(table)}
+
+    def add(table: str, column: str, ddl: str) -> None:
+        if column not in cols(table):
+            sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+    add("users", "language", "language VARCHAR(16)")
+    add("users", "region_city", "region_city VARCHAR(120)")
+    add("users", "region_rayon", "region_rayon VARCHAR(120)")
+    add("users", "balance", "balance NUMERIC(14, 2) DEFAULT 0")
+    add("doctors", "bonus_balance", "bonus_balance NUMERIC(14, 2) DEFAULT 0")
+    add("pharmacies", "inn", "inn VARCHAR(32)")
+    add("pharmacies", "filial", "filial VARCHAR(120)")
 
 
 async def init_db() -> None:

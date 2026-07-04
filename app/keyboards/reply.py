@@ -33,10 +33,12 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [salary, language],
         ]
     elif role == Role.MANAGER:
+        # Медвакил (медпредставитель) menyusi — test3640bot uslubida.
         rows = [
-            [admin, doctors],
-            [pharmacies, daily],
-            [requests, salary],
+            [doctors, pharmacies],
+            [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
+            [t(lang, "btn_diary"), finance],
+            [salary],
             [language],
         ]
     elif role in {Role.OPERATOR, Role.ASSISTANT}:
@@ -174,3 +176,65 @@ def finance_type_keyboard(lang: str) -> InlineKeyboardMarkup:
             for operation_type, key in keys.items()
         ]
     )
+
+
+# ==================== Медвакил (медпредставитель) ====================
+
+def rep_finance_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [[t(lang, "btn_pay_doctor")], [t(lang, "btn_return_admin")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
+
+
+def geo_request_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_send_geo"), request_location=True)],
+            [KeyboardButton(text=t(lang, "btn_cancel"))],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        input_field_placeholder=t(lang, "btn_send_geo"),
+    )
+
+
+def diary_inline(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_diary_new"), callback_data="diary:new")],
+            [InlineKeyboardButton(text=t(lang, "btn_diary_search"), callback_data="diary:search")],
+            [InlineKeyboardButton(text=t(lang, "btn_diary_last"), callback_data="diary:last")],
+        ]
+    )
+
+
+def sale_cart_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_cart_add_more"), callback_data="sale_cart:add")],
+            [InlineKeyboardButton(text=t(lang, "btn_cart_finish"), callback_data="sale_cart:finish")],
+        ]
+    )
+
+
+def wh_cart_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_cart_add_more"), callback_data="wh_cart:add")],
+            [InlineKeyboardButton(text=t(lang, "btn_cart_finish"), callback_data="wh_cart:finish")],
+        ]
+    )
+
+
+def entities_inline(items: list[tuple[int, str]], prefix: str) -> InlineKeyboardMarkup:
+    """items: [(id, label), ...] -> har biri callback_data f'{prefix}:{id}'."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=label, callback_data=f"{prefix}:{item_id}")] for item_id, label in items]
+    )
+
+
+def contracts_inline(contracts: list[tuple[int, str]], lang: str) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=label, callback_data=f"wh_contract:{cid}")] for cid, label in contracts]
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_request_contract"), callback_data="wh_contract:new")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

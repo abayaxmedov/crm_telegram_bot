@@ -34,8 +34,10 @@ async def main() -> None:
     )
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.middleware(DbSessionMiddleware())
-    dp.message.middleware(LanguageMiddleware())
-    dp.callback_query.middleware(LanguageMiddleware())
+    # OUTER middleware: filtrlardan (RoleFilter) oldin ishlashi uchun, shunda
+    # db_user/lang filtrlar uchun ham mavjud bo'ladi.
+    dp.message.outer_middleware(LanguageMiddleware())
+    dp.callback_query.outer_middleware(LanguageMiddleware())
     setup_routers(dp)
 
     await setup_bot_profile(bot)
