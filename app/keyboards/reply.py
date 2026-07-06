@@ -41,7 +41,10 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [salary],
             [language],
         ]
-    elif role in {Role.OPERATOR, Role.ASSISTANT}:
+    elif role == Role.OPERATOR:
+        # Оператор фақат складга заявкаларни тасдиқлайди + тил.
+        rows = [[t(lang, "btn_wh_approve")], [language]]
+    elif role == Role.ASSISTANT:
         rows = [[requests, daily], [doctors, pharmacies], [salary, language]]
     else:
         rows = [[daily, salary], [requests], [language]]

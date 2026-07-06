@@ -8,6 +8,7 @@ from app.handlers import (
     diary,
     directories,
     finance,
+    operator,
     rep_finance,
     reports,
     requests,
@@ -27,6 +28,7 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(warehouse.router)
     dp.include_router(diary.router)
     dp.include_router(rep_finance.router)
+    dp.include_router(operator.router)
     dp.include_router(finance.router)
     dp.include_router(salary.router)
     dp.include_router(common.router)

@@ -23,6 +23,8 @@ class Role(str, enum.Enum):
     OPERATOR = "operator"
     ASSISTANT = "assistant"
     DOCTOR = "doctor"
+    # PHARMACY: apteka roli endi YARATILMAYDI (can_create_role False qaytaradi).
+    # Enum qiymati faqat eski bazadagi yozuvlar buzilmasligi uchun saqlanadi.
     PHARMACY = "pharmacy"
 
 

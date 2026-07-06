@@ -608,6 +608,32 @@ STRINGS: dict[str, dict[str, str]] = {
     # ---- Kichik yorliqlar ----
     "pcs": {UZ_CYRL: "дона", RU: "шт"},
     "stock_short": {UZ_CYRL: "қолдиқ", RU: "остаток"},
+
+    # ---- Оператор: заявкаларни тасдиқлаш ----
+    "btn_wh_approve": {UZ_CYRL: "📦 Заявкаларни тасдиқлаш", RU: "📦 Подтверждение заявок"},
+    "wh_approve_empty": {
+        UZ_CYRL: "Тасдиқлашни кутаётган заявкалар йўқ.",
+        RU: "Нет заявок, ожидающих подтверждения.",
+    },
+    "wh_approve_header": {
+        UZ_CYRL: "📦 Тасдиқлашни кутаётган заявкалар:",
+        RU: "📦 Заявки, ожидающие подтверждения:",
+    },
+    "wh_request_card": {
+        UZ_CYRL: "📦 Заявка №{id}\n👤 Медвакил: {rep}\n💊 Аптека: {pharmacy}\n📄 {contract}\n📅 {date}\n\n{items}",
+        RU: "📦 Заявка №{id}\n👤 Медпредставитель: {rep}\n💊 Аптека: {pharmacy}\n📄 {contract}\n📅 {date}\n\n{items}",
+    },
+    "btn_wh_ok": {UZ_CYRL: "✅ Тасдиқлаш", RU: "✅ Подтвердить"},
+    "btn_wh_reject": {UZ_CYRL: "❌ Рад этиш", RU: "❌ Отклонить"},
+    "wh_approved": {
+        UZ_CYRL: "✅ Заявка №{id} тасдиқланди. Склад қолдиғи янгиланди.",
+        RU: "✅ Заявка №{id} подтверждена. Остаток склада обновлён.",
+    },
+    "wh_rejected": {UZ_CYRL: "❌ Заявка №{id} рад этилди.", RU: "❌ Заявка №{id} отклонена."},
+    "wh_request_not_found": {
+        UZ_CYRL: "Заявка топилмади ёки аллақачон кўриб чиқилган.",
+        RU: "Заявка не найдена или уже обработана.",
+    },
 }
 
 # Oy nomlari (KPI sarlavhasi uchun)

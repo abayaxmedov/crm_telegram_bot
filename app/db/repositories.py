@@ -7,6 +7,7 @@ from typing import Iterable
 
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models import (
     AuditLog,
@@ -30,6 +31,7 @@ from app.db.models import (
     VisitDiary,
     WarehouseRequest,
     WarehouseRequestItem,
+    WarehouseStatus,
 )
 
 
@@ -433,6 +435,46 @@ async def create_warehouse_request(
         )
     await log_action(session, rep, "warehouse_request_created", "warehouse_request", str(request.id), None)
     return request
+
+
+def _wh_options():
+    return (
+        selectinload(WarehouseRequest.items),
+        selectinload(WarehouseRequest.pharmacy),
+        selectinload(WarehouseRequest.contract),
+        selectinload(WarehouseRequest.rep),
+    )
+
+
+async def list_pending_warehouse_requests(session: AsyncSession, limit: int = 20) -> list[WarehouseRequest]:
+    result = await session.execute(
+        select(WarehouseRequest)
+        .where(WarehouseRequest.status == WarehouseStatus.NEW)
+        .order_by(WarehouseRequest.created_at)
+        .options(*_wh_options())
+        .limit(limit)
+    )
+    return list(result.scalars())
+
+
+async def get_warehouse_request(session: AsyncSession, request_id: int) -> WarehouseRequest | None:
+    result = await session.execute(
+        select(WarehouseRequest).where(WarehouseRequest.id == request_id).options(*_wh_options())
+    )
+    return result.scalar_one_or_none()
+
+
+async def set_warehouse_status(
+    session: AsyncSession, *, request: WarehouseRequest, status: WarehouseStatus, operator: User
+) -> None:
+    request.status = status
+    # Tasdiqlanganda склад қолдиғи тўлдирилади (буюртма бажарилди).
+    if status == WarehouseStatus.APPROVED:
+        for item in request.items:
+            drug = await get_drug(session, item.drug_id)
+            if drug is not None:
+                drug.stock = drug.stock + item.quantity
+    await log_action(session, operator, "warehouse_status_changed", "warehouse_request", str(request.id), status.value)
 
 
 async def pay_doctor_bonus(session: AsyncSession, *, rep: User, doctor: Doctor, amount: Decimal) -> None:

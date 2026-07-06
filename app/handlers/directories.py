@@ -21,7 +21,7 @@ from app.handlers.utils import clean_optional, require_user, safe
 from app.i18n import t, variants
 from app.keyboards.reply import doctors_menu, pharmacies_menu
 from app.services.media import answer_media
-from app.services.security import can_manage_directories
+from app.services.security import can_manage_directories, can_manage_pharmacies
 
 router = Router(name="directories")
 
@@ -154,7 +154,7 @@ async def pharmacy_start(message: Message, session: AsyncSession, state: FSMCont
     user = await require_user(message, session)
     if user is None:
         return
-    if not can_manage_directories(user.role):
+    if not can_manage_pharmacies(user.role):
         await message.answer(t(lang, "no_perm_pharmacy_add"))
         return
     await state.set_state(PharmacyFlow.name)
