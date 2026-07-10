@@ -19,13 +19,42 @@ def enum_type(enum_cls: type[enum.Enum]) -> SqlEnum:
 
 class Role(str, enum.Enum):
     OWNER = "owner"
-    MANAGER = "manager"
+    # Ierarxiya: OWNER > [TOP_MANAGER, PRODUCT_MANAGER] > REGIONAL_MANAGER > MANAGER (медвакил) > доктор
+    TOP_MANAGER = "top_manager"
+    # Product менежер: dori materiallarini yuklaydi, barcha hisobotlarni ko'radi.
+    PRODUCT_MANAGER = "product_manager"
+    REGIONAL_MANAGER = "regional_manager"
+    MANAGER = "manager"  # медвакил (медпредставитель)
     OPERATOR = "operator"
-    ASSISTANT = "assistant"
     DOCTOR = "doctor"
-    # PHARMACY: apteka roli endi YARATILMAYDI (can_create_role False qaytaradi).
+    # ASSISTANT: endi YARATILMAYDI va menyu/ruxsatlardan olib tashlangan.
     # Enum qiymati faqat eski bazadagi yozuvlar buzilmasligi uchun saqlanadi.
+    ASSISTANT = "assistant"
+    # PHARMACY: rol emas — apteka faqat ma'lumot modeli (Pharmacy). Legacy uchun qoladi.
     PHARMACY = "pharmacy"
+
+
+class ApprovalStatus(str, enum.Enum):
+    """Доктор/дорихона yaratilganda operator tasdig'i uchun holat."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class BallTxKind(str, enum.Enum):
+    """Ball harakati turi."""
+
+    MINT = "mint"                # owner -> TOP menejer (emissiya, ayirilmaydi)
+    TRANSFER = "transfer"        # zanjir bo'ylab o'tkazma (qabul qilinganda ayiriladi)
+    SALE_DEDUCT = "sale_deduct"  # sotuv kiritilganda doktordan avtomatik ayirish
+
+
+class BallTxStatus(str, enum.Enum):
+    PENDING = "pending"    # qabul qiluvchi tasdig'ini kutmoqda
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    EXPIRED = "expired"    # 1 kun ichida tasdiqlanmadi (doktor xabari o'chdi)
 
 
 class RequestStatus(str, enum.Enum):
@@ -68,6 +97,16 @@ class TimestampMixin:
     )
 
 
+class Region(Base, TimestampMixin):
+    """Region (viloyat) — owner boshqaradi. Ierarxik ko'rish shu bo'yicha filtrlanadi."""
+
+    __tablename__ = "regions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
@@ -82,7 +121,11 @@ class User(Base, TimestampMixin):
     # Медвакил (медпредставитель) uchun: region va "под отчёт" balans.
     region_city: Mapped[str | None] = mapped_column(String(120))
     region_rayon: Mapped[str | None] = mapped_column(String(120))
+    # Ierarxik ko'rish uchun asosiy region kaliti (regional_manager/manager uchun).
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
     balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    # Aksiya ballari balansi (owner -> top -> regional -> medvakil zanjiri).
+    ball_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     invite_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     invite_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -90,6 +133,7 @@ class User(Base, TimestampMixin):
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     invited_by: Mapped["User | None"] = relationship(remote_side="User.id")
+    region: Mapped["Region | None"] = relationship()
 
 
 class Doctor(Base, TimestampMixin):
@@ -104,10 +148,26 @@ class Doctor(Base, TimestampMixin):
     class_category: Mapped[str | None] = mapped_column(String(120))
     manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
-    # Sotuvlar orqali to'planadigan, medvakil to'laydigan bonus balansi.
+    # LEGACY: eski pul-bonus balansi (ball tizimi bilan almashtirilgan, o'chirilmaydi).
     bonus_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    # Aksiya ballari balansi — sotuvda ayiriladi, manfiy bo'lishi mumkin.
+    ball_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Doktor yozuvi <-> DOCTOR-rolli bot foydalanuvchisi (telefon orqali bog'lanadi).
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    # Ierarxik ko'rish + operator tasdig'i uchun.
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        enum_type(ApprovalStatus),
+        default=ApprovalStatus.PENDING,
+        server_default=ApprovalStatus.PENDING.value,
+        index=True,
+    )
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
-    manager: Mapped[User | None] = relationship()
+    manager: Mapped[User | None] = relationship(foreign_keys=[manager_id])
+    region: Mapped[Region | None] = relationship()
+    created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
+    bot_user: Mapped[User | None] = relationship(foreign_keys=[user_id])
 
 
 class Pharmacy(Base, TimestampMixin):
@@ -125,8 +185,17 @@ class Pharmacy(Base, TimestampMixin):
     # ИНН va филиал (test3640bot: "мунавара (Филиал: 1)").
     inn: Mapped[str | None] = mapped_column(String(32), index=True)
     filial: Mapped[str | None] = mapped_column(String(120))
+    # Ierarxik ko'rish + operator tasdig'i uchun (manager_id — yaratuvchi).
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        enum_type(ApprovalStatus),
+        default=ApprovalStatus.PENDING,
+        server_default=ApprovalStatus.PENDING.value,
+        index=True,
+    )
 
     manager: Mapped[User | None] = relationship()
+    region: Mapped[Region | None] = relationship()
 
     contracts: Mapped[list["Contract"]] = relationship(back_populates="pharmacy")
 
@@ -199,7 +268,10 @@ class Drug(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
     stock: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # qoldiq (упак.)
-    # Sotilgan har upakovka uchun vrachga hisoblanadigan bonus.
+    # Narx va aksiya balli (har upakovka) — faqat owner kiritadi/tahrirlaydi.
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    ball: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # LEGACY: eski pul-bonus stavkasi (ball tizimi bilan almashtirilgan).
     doctor_bonus_per_pack: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0")
     # KPI (medvakil zarplatasi) uchun: plan (упак.), davr (oy), 100% bajarilganda to'liq bonus.
     kpi_plan_qty: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -221,6 +293,8 @@ class Contract(Base, TimestampMixin):
         enum_type(ContractStatus), default=ContractStatus.ACTIVE, server_default=ContractStatus.ACTIVE.value
     )
     requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Operator yuklagan kelishuv shartnomasi hujjati (Telegram document file_id).
+    file_id: Mapped[str | None] = mapped_column(String(255))
 
     pharmacy: Mapped[Pharmacy] = relationship(back_populates="contracts")
 
@@ -234,7 +308,11 @@ class Sale(Base, TimestampMixin):
     rep_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"))
     doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id", ondelete="SET NULL"))
+    # LEGACY: eski pul-bonus jami (endi yozilmaydi).
     total_bonus: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    # Moliyaviy hisobot uchun snapshot: jami tushum va jami ball.
+    total_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    total_ball: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     rep: Mapped[User] = relationship()
     pharmacy: Mapped[Pharmacy | None] = relationship()
@@ -250,7 +328,11 @@ class SaleItem(Base):
     drug_id: Mapped[int] = mapped_column(ForeignKey("drugs.id", ondelete="SET NULL"), index=True)
     drug_name: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[int] = mapped_column(Integer)
+    # LEGACY: eski pul-bonus (endi yozilmaydi).
     bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0")
+    # Sotuv paytidagi snapshot (har upakovka uchun).
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    ball: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     sale: Mapped[Sale] = relationship(back_populates="items")
@@ -318,6 +400,67 @@ class RepPayment(Base):
 
     rep: Mapped[User] = relationship()
     doctor: Mapped[Doctor | None] = relationship()
+
+
+class BallTransaction(Base):
+    """Aksiya ballari harakati — barcha ball jarayonlari shu jadvalga yoziladi.
+
+    MINT: owner -> TOP (emissiya). TRANSFER: zanjir bo'ylab, qabul qilinganda kuchga kiradi.
+    SALE_DEDUCT: sotuvda doktordan avtomatik ayirish (darhol ACCEPTED)."""
+
+    __tablename__ = "ball_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[BallTxKind] = mapped_column(enum_type(BallTxKind), index=True)
+    status: Mapped[BallTxStatus] = mapped_column(
+        enum_type(BallTxStatus),
+        default=BallTxStatus.PENDING,
+        server_default=BallTxStatus.PENDING.value,
+        index=True,
+    )
+    amount: Mapped[int] = mapped_column(Integer)
+    from_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    to_doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id", ondelete="SET NULL"), index=True)
+    sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    from_user: Mapped["User | None"] = relationship(foreign_keys=[from_user_id])
+    to_user: Mapped["User | None"] = relationship(foreign_keys=[to_user_id])
+    to_doctor: Mapped["Doctor | None"] = relationship(foreign_keys=[to_doctor_id])
+
+
+class ScheduledDeletion(Base):
+    """Doktor chatidagi xabarlarni 24 soatdan keyin o'chirish navbati.
+
+    ball_tx_id to'ldirilgan bo'lsa — bu tasdiqlash xabari: o'chirilganda PENDING
+    o'tkazma EXPIRED holatiga o'tkaziladi."""
+
+    __tablename__ = "scheduled_deletions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[int] = mapped_column(BigInteger)
+    delete_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ball_tx_id: Mapped[int | None] = mapped_column(ForeignKey("ball_transactions.id", ondelete="SET NULL"))
+
+
+class DrugMaterial(Base, TimestampMixin):
+    """Dori bo'yicha material (DOCX/slayd/PDF). TOP menejer yuklaydi, medvakil oladi.
+
+    Fayl serverga yozilmaydi — Telegram document `file_id` saqlanadi (voice_file_id kabi)."""
+
+    __tablename__ = "drug_materials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), index=True)
+    file_id: Mapped[str] = mapped_column(String(255))
+    file_name: Mapped[str | None] = mapped_column(String(255))
+    uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    uploaded_by: Mapped["User | None"] = relationship()
 
 
 class AuditLog(Base):

@@ -8,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Role
 from app.db.repositories import add_daily_report, list_daily_reports
 from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
 from app.i18n import t, variants
@@ -15,6 +16,9 @@ from app.keyboards.reply import daily_menu, report_target_keyboard
 from app.services.media import answer_media
 
 router = Router(name="reports")
+
+# Kunlik hisobot YOZADIGAN rollar (top/product faqat o'qiydi, operator/doktor yozmaydi).
+REPORT_WRITER_ROLES = {Role.OWNER, Role.MANAGER, Role.REGIONAL_MANAGER}
 
 
 class DailyReportFlow(StatesGroup):
@@ -35,6 +39,9 @@ async def report_start(message: Message, session: AsyncSession, lang: str) -> No
     user = await require_user(message, session)
     if user is None:
         return
+    if user.role not in REPORT_WRITER_ROLES:
+        await message.answer(t(lang, "section_closed"))
+        return
     await message.answer(t(lang, "report_target_q"), reply_markup=report_target_keyboard(lang))
 
 
@@ -42,6 +49,9 @@ async def report_start(message: Message, session: AsyncSession, lang: str) -> No
 async def report_target(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_callback_user(callback, session)
     if user is None:
+        return
+    if user.role not in REPORT_WRITER_ROLES:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
 
     target_type = callback.data.split(":", 1)[1] if callback.data else "general"

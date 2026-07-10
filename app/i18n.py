@@ -211,6 +211,9 @@ STRINGS: dict[str, dict[str, str]] = {
 
     # ---- Rollar ----
     "role_owner": {UZ_CYRL: "Эга (Owner)", RU: "Владелец"},
+    "role_top_manager": {UZ_CYRL: "TOP менежер", RU: "TOP менеджер"},
+    "role_product_manager": {UZ_CYRL: "Product менежер", RU: "Продукт-менеджер"},
+    "role_regional_manager": {UZ_CYRL: "Регионал менежер", RU: "Региональный менеджер"},
     # MANAGER endi "Медпредставитель" (сотувчи) — кириллда "Медвакил".
     "role_manager": {UZ_CYRL: "Медвакил", RU: "Медпредставитель"},
     "role_operator": {UZ_CYRL: "Оператор", RU: "Оператор"},
@@ -500,6 +503,20 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "✅ Муваффақиятли! Рецепт рўйхатга олинди.\nВрач {doctor}га бонус ҳисобланди: {bonus}\n\n📋 Тафсилот:\n{detail}",
         RU: "✅ Успешно! Рецепт зарегистрирован.\nВрачу {doctor} начислен бонус: {bonus}\n\n📋 Детализация:\n{detail}",
     },
+    "sale_done_ball": {
+        UZ_CYRL: (
+            "✅ Муваффақиятли! Сотув рўйхатга олинди.\n"
+            "💰 Жами тушум: {price}\n"
+            "💠 Доктор {doctor} ҳисобидан {ball} балл айирилди.\n"
+            "Доктор жорий баланси: {balance}\n\n📋 Тафсилот:\n{detail}"
+        ),
+        RU: (
+            "✅ Успешно! Продажа зарегистрирована.\n"
+            "💰 Общая выручка: {price}\n"
+            "💠 Со счёта врача {doctor} списано {ball} баллов.\n"
+            "Текущий баланс врача: {balance}\n\n📋 Детализация:\n{detail}"
+        ),
+    },
 
     # ---- Заявка на склад ----
     "wh_search_pharmacy": {
@@ -634,6 +651,296 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "Заявка топилмади ёки аллақачон кўриб чиқилган.",
         RU: "Заявка не найдена или уже обработана.",
     },
+
+    # ================= Регионлар (owner) =================
+    "btn_regions": {UZ_CYRL: "🗺 Регионлар", RU: "🗺 Регионы"},
+    "btn_region_add": {UZ_CYRL: "➕ Регион қўшиш", RU: "➕ Добавить регион"},
+    "btn_regions_list": {UZ_CYRL: "📋 Регионлар рўйхати", RU: "📋 Список регионов"},
+    "regions_text": {
+        UZ_CYRL: "<b>Регионлар</b>\n\nРегионларни қўшинг. Регионал менежер ва медвакил "
+                 "шу регионлардан бирига бириктирилади.",
+        RU: "<b>Регионы</b>\n\nДобавляйте регионы. Региональный менеджер и медпредставитель "
+            "привязываются к одному из этих регионов.",
+    },
+    "no_perm_regions": {UZ_CYRL: "Регионлар бўлими фақат эга учун.", RU: "Раздел регионов только для владельца."},
+    "enter_region_name": {UZ_CYRL: "Регион номини киритинг:", RU: "Введите название региона:"},
+    "region_saved": {UZ_CYRL: "<b>Регион сақланди:</b> #{id} {name}", RU: "<b>Регион сохранён:</b> #{id} {name}"},
+    "region_exists": {UZ_CYRL: "Бундай регион аллақачон бор.", RU: "Такой регион уже существует."},
+    "regions_empty": {UZ_CYRL: "Ҳали регионлар йўқ.", RU: "Регионов пока нет."},
+    "regions_header": {UZ_CYRL: "<b>Регионлар</b>", RU: "<b>Регионы</b>"},
+
+    # ================= User yaratишда регион =================
+    "choose_region": {UZ_CYRL: "Регионни танланг:", RU: "Выберите регион:"},
+    "no_regions_create_first": {
+        UZ_CYRL: "Аввал камида битта регион қўшинг (Регионлар бўлими).",
+        RU: "Сначала добавьте хотя бы один регион (раздел «Регионы»).",
+    },
+
+    # ================= Доктор/дорихона тасдиқ =================
+    "entity_pending": {
+        UZ_CYRL: "⏳ Юборилди. Оператор тасдиғидан сўнг рўйхатга қўшилади.",
+        RU: "⏳ Отправлено. Будет добавлено в список после подтверждения оператора.",
+    },
+    "btn_entity_approve": {UZ_CYRL: "🆕 Доктор/дорихона тасдиғи", RU: "🆕 Подтверждение врача/аптеки"},
+    "entity_approve_empty": {
+        UZ_CYRL: "Тасдиқлашни кутаётган доктор/дорихона йўқ.",
+        RU: "Нет врачей/аптек, ожидающих подтверждения.",
+    },
+    "entity_approve_header": {
+        UZ_CYRL: "🆕 Тасдиқлашни кутаётган ёзувлар:",
+        RU: "🆕 Записи, ожидающие подтверждения:",
+    },
+    "doctor_card_pending": {
+        UZ_CYRL: "🧑‍⚕️ Доктор №{id}\nФИО: {name}\n☎️ {phone}\n📍 {location}\n🗺 Регион: {region}\n👤 Яратди: {author}",
+        RU: "🧑‍⚕️ Врач №{id}\nФИО: {name}\n☎️ {phone}\n📍 {location}\n🗺 Регион: {region}\n👤 Создал: {author}",
+    },
+    "pharmacy_card_pending": {
+        UZ_CYRL: "💊 Дорихона №{id}\nНоми: {name}\n☎️ {phone}\n📍 {location}\n🗺 Регион: {region}\n👤 Яратди: {author}",
+        RU: "💊 Аптека №{id}\nНазвание: {name}\n☎️ {phone}\n📍 {location}\n🗺 Регион: {region}\n👤 Создал: {author}",
+    },
+    "btn_entity_ok": {UZ_CYRL: "✅ Тасдиқлаш", RU: "✅ Подтвердить"},
+    "btn_entity_reject": {UZ_CYRL: "❌ Рад этиш", RU: "❌ Отклонить"},
+    "entity_approved": {UZ_CYRL: "✅ Тасдиқланди.", RU: "✅ Подтверждено."},
+    "entity_rejected": {UZ_CYRL: "❌ Рад этилди.", RU: "❌ Отклонено."},
+    "entity_not_found": {
+        UZ_CYRL: "Ёзув топилмади ёки аллақачон кўриб чиқилган.",
+        RU: "Запись не найдена или уже обработана.",
+    },
+
+    # ================= Дори материаллари =================
+    "btn_material_upload": {UZ_CYRL: "📤 Материал юклаш", RU: "📤 Загрузить материал"},
+    "btn_materials": {UZ_CYRL: "📚 Дори материаллари", RU: "📚 Материалы по препаратам"},
+    "materials_text": {
+        UZ_CYRL: "<b>Дори материаллари</b>\n\nTOP менежер дорилар бўйича материал (DOCX/слайд/PDF) "
+                 "юклайди. Медвакил доктор олдига боришдан олдин уларни юклаб олади.",
+        RU: "<b>Материалы по препаратам</b>\n\nTOP менеджер загружает материалы (DOCX/слайд/PDF) по препаратам. "
+            "Медпредставитель скачивает их перед визитом к врачу.",
+    },
+    "no_perm_material_upload": {
+        UZ_CYRL: "Материал юклаш фақат Product менежер учун.",
+        RU: "Загрузка материалов доступна только продукт-менеджеру.",
+    },
+    "material_upload_prompt": {
+        UZ_CYRL: "📎 Материал файлини (DOCX, PPTX ёки PDF) ҳужжат сифатида юборинг:",
+        RU: "📎 Отправьте файл материала (DOCX, PPTX или PDF) как документ:",
+    },
+    "material_not_document": {
+        UZ_CYRL: "Илтимос, файлни <b>ҳужжат</b> (document) сифатида юборинг.",
+        RU: "Пожалуйста, отправьте файл как <b>документ</b>.",
+    },
+    "material_ask_title": {UZ_CYRL: "Материал сарлавҳасини киритинг:", RU: "Введите заголовок материала:"},
+    "material_saved": {UZ_CYRL: "✅ Материал сақланди: #{id} {title}", RU: "✅ Материал сохранён: #{id} {title}"},
+    "materials_empty": {UZ_CYRL: "Ҳали материаллар йўқ.", RU: "Материалов пока нет."},
+    "materials_header": {UZ_CYRL: "📚 Мавжуд материаллар (юклаб олиш учун танланг):", RU: "📚 Доступные материалы (выберите для скачивания):"},
+    "material_not_found": {UZ_CYRL: "Материал топилмади.", RU: "Материал не найден."},
+
+    # ================= Иерархик ҳисоботлар =================
+    "btn_hierarchy_reports": {UZ_CYRL: "📊 Жамоа ҳисоботи", RU: "📊 Отчёт команды"},
+    "hierarchy_reports_text": {
+        UZ_CYRL: "<b>Жамоа ҳисоботи</b>\n\nСизга бириктирилган (қуйи) ходимларнинг фаолияти: "
+                 "кундалик ҳисоботлар, сотувлар, ташрифлар ва KPI.",
+        RU: "<b>Отчёт команды</b>\n\nАктивность подчинённых сотрудников: ежедневные отчёты, "
+            "продажи, визиты и KPI.",
+    },
+    "no_perm_reports": {UZ_CYRL: "Бу бўлим сизга очилмаган.", RU: "Этот раздел вам недоступен."},
+    "btn_report_download_word": {UZ_CYRL: "📄 Word'да юклаб олиш", RU: "📄 Скачать в Word"},
+    "report_empty_all": {UZ_CYRL: "Ҳали фаолият маълумотлари йўқ.", RU: "Данных об активности пока нет."},
+    "report_sec_daily": {UZ_CYRL: "🗒 Кундалик ҳисоботлар", RU: "🗒 Ежедневные отчёты"},
+    "report_sec_sales": {UZ_CYRL: "🛍 Сотувлар", RU: "🛍 Продажи"},
+    "report_sec_visits": {UZ_CYRL: "📖 Ташрифлар", RU: "📖 Визиты"},
+    "report_sec_kpi": {UZ_CYRL: "📈 KPI (медвакиллар)", RU: "📈 KPI (медпредставители)"},
+    "report_docx_caption": {UZ_CYRL: "📄 Жамоа ҳисоботи", RU: "📄 Отчёт команды"},
+    "report_docx_title": {UZ_CYRL: "Жамоа фаолияти ҳисоботи", RU: "Отчёт активности команды"},
+    "report_line_more": {UZ_CYRL: "... ва яна {n} та", RU: "... и ещё {n}"},
+
+    # ================= Ball (aksiya ballari) =================
+    "btn_ball": {UZ_CYRL: "💠 Балл баланси", RU: "💠 Баланс баллов"},
+    "ball_balance_text": {
+        UZ_CYRL: "💠 <b>Балл баланси</b>\n\nЖорий балансингиз: <b>{balance}</b> балл",
+        RU: "💠 <b>Баланс баллов</b>\n\nВаш текущий баланс: <b>{balance}</b> баллов",
+    },
+    "ball_balance_owner": {
+        UZ_CYRL: "💠 <b>Балл баланси</b>\n\nСиз owner сифатида чексиз балл кирита оласиз (эмиссия).",
+        RU: "💠 <b>Баланс баллов</b>\n\nКак владелец вы можете вводить баллы без ограничений (эмиссия).",
+    },
+    "ball_pending_note": {
+        UZ_CYRL: "Тасдиқ кутилаётган юборилган баллар: {pending}",
+        RU: "Отправленные баллы в ожидании подтверждения: {pending}",
+    },
+    "btn_ball_send": {UZ_CYRL: "📤 Балл юбориш", RU: "📤 Отправить баллы"},
+    "btn_ball_report": {UZ_CYRL: "📊 Балл ҳисоботи", RU: "📊 Отчёт по баллам"},
+    "ball_no_perm": {UZ_CYRL: "Балл бўлими сизга очилмаган.", RU: "Раздел баллов вам недоступен."},
+    "ball_choose_recipient": {UZ_CYRL: "Кимга балл юборасиз?", RU: "Кому отправить баллы?"},
+    "ball_no_recipients": {
+        UZ_CYRL: "Балл юбориш мумкин бўлган қабул қилувчилар йўқ.",
+        RU: "Нет получателей, которым можно отправить баллы.",
+    },
+    "ball_no_linked_doctors": {
+        UZ_CYRL: "Ботга уланган (телефон орқали боғланган) докторлар топилмади. Аввал доктор invite орқали ботга кириши керак.",
+        RU: "Не найдено врачей, подключённых к боту (по номеру телефона). Сначала врач должен войти в бот по invite-ссылке.",
+    },
+    "ball_enter_amount": {
+        UZ_CYRL: "Юбориладиган балл сонини киритинг (Мавжуд: {available}):",
+        RU: "Введите количество баллов для отправки (Доступно: {available}):",
+    },
+    "ball_enter_amount_owner": {
+        UZ_CYRL: "Юбориладиган балл сонини киритинг:",
+        RU: "Введите количество баллов для отправки:",
+    },
+    "ball_amount_invalid": {
+        UZ_CYRL: "Сон нотўғри. Бутун мусбат сон киритинг.",
+        RU: "Неверное число. Введите целое положительное число.",
+    },
+    "ball_insufficient": {
+        UZ_CYRL: "Балансингизда балл етарли эмас! Мавжуд: {available}",
+        RU: "Недостаточно баллов на балансе! Доступно: {available}",
+    },
+    "ball_request_sent": {
+        UZ_CYRL: "✅ Сўров юборилди: {name} га {amount} балл. Қабул қилувчи тасдиқлагач балансга ўтади.",
+        RU: "✅ Запрос отправлен: {amount} баллов для {name}. Баллы поступят после подтверждения получателем.",
+    },
+    "ball_recipient_unreachable": {
+        UZ_CYRL: "Қабул қилувчига хабар юбориб бўлмади (бот блокланган бўлиши мумкин). Сўров бекор қилинди.",
+        RU: "Не удалось отправить сообщение получателю (возможно, бот заблокирован). Запрос отменён.",
+    },
+    "ball_accept_prompt": {
+        UZ_CYRL: "💠 <b>{from_name}</b> сизга <b>{amount}</b> та акция баллини юборди.\nҚабул қиласизми?",
+        RU: "💠 <b>{from_name}</b> отправил вам <b>{amount}</b> акционных баллов.\nПринимаете?",
+    },
+    "btn_ball_accept": {UZ_CYRL: "✅ Қабул қилиш", RU: "✅ Принять"},
+    "btn_ball_reject": {UZ_CYRL: "❌ Рад этиш", RU: "❌ Отклонить"},
+    "ball_not_yours": {UZ_CYRL: "Бу сўров сизга тегишли эмас.", RU: "Этот запрос адресован не вам."},
+    "ball_tx_not_found": {
+        UZ_CYRL: "Сўров топилмади ёки аллақачон кўриб чиқилган.",
+        RU: "Запрос не найден или уже обработан.",
+    },
+    "ball_accepted_recipient": {
+        UZ_CYRL: "✅ {amount} балл қабул қилинди. Жорий балансингиз: {balance}",
+        RU: "✅ {amount} баллов принято. Ваш текущий баланс: {balance}",
+    },
+    "ball_accepted_sender": {
+        UZ_CYRL: "✅ {name} {amount} баллни қабул қилди.",
+        RU: "✅ {name} принял(а) {amount} баллов.",
+    },
+    "ball_rejected_recipient": {UZ_CYRL: "❌ Балл рад этилди.", RU: "❌ Баллы отклонены."},
+    "ball_rejected_sender": {
+        UZ_CYRL: "❌ {name} {amount} баллни рад этди.",
+        RU: "❌ {name} отклонил(а) {amount} баллов.",
+    },
+    "ball_autoreject_insufficient": {
+        UZ_CYRL: "❌ Юборувчи балансида балл етарли эмас — сўров бекор қилинди.",
+        RU: "❌ У отправителя недостаточно баллов — запрос отменён.",
+    },
+    "ball_expired_sender": {
+        UZ_CYRL: "⌛️ {name} га юборилган {amount} балл сўрови муддати тугади (тасдиқланмади).",
+        RU: "⌛️ Срок запроса на {amount} баллов для {name} истёк (не был подтверждён).",
+    },
+    "ball_deducted_doctor": {
+        UZ_CYRL: "📉 Сотув бўйича ҳисобингиздан <b>{amount}</b> балл айирилди.\nЖорий баланс: <b>{balance}</b>",
+        RU: "📉 По продаже с вашего счёта списано <b>{amount}</b> баллов.\nТекущий баланс: <b>{balance}</b>",
+    },
+    "ball_report_header": {UZ_CYRL: "📊 <b>Балл ҳисоботи</b>", RU: "📊 <b>Отчёт по баллам</b>"},
+    "ball_balances_users": {UZ_CYRL: "👥 Ходимлар баланслари:", RU: "👥 Балансы сотрудников:"},
+    "ball_balances_doctors": {UZ_CYRL: "🧑‍⚕️ Докторлар баланслари:", RU: "🧑‍⚕️ Балансы врачей:"},
+    "ball_turnover_line": {
+        UZ_CYRL: "Давр айланмаси: кирим {inflow} | чиқим {outflow} | сотувдан айирилган {deducted}",
+        RU: "Оборот за период: приход {inflow} | расход {outflow} | списано по продажам {deducted}",
+    },
+    "ball_tx_row": {
+        UZ_CYRL: "{date} | {kind} | {from_name} → {to_name} | {amount} балл | {status}",
+        RU: "{date} | {kind} | {from_name} → {to_name} | {amount} баллов | {status}",
+    },
+    "ball_kind_mint": {UZ_CYRL: "Эмиссия", RU: "Эмиссия"},
+    "ball_kind_transfer": {UZ_CYRL: "Ўтказма", RU: "Перевод"},
+    "ball_kind_sale_deduct": {UZ_CYRL: "Сотувдан айириш", RU: "Списание по продаже"},
+    "ball_status_pending": {UZ_CYRL: "кутилмоқда", RU: "ожидается"},
+    "ball_status_accepted": {UZ_CYRL: "қабул қилинган", RU: "принято"},
+    "ball_status_rejected": {UZ_CYRL: "рад этилган", RU: "отклонено"},
+    "ball_status_expired": {UZ_CYRL: "муддати тугаган", RU: "истекло"},
+
+    # ================= Dorilar (tovarlar) — owner =================
+    "btn_drugs": {UZ_CYRL: "🧪 Препаратлар", RU: "🧪 Препараты"},
+    "drugs_text": {
+        UZ_CYRL: "<b>Препаратлар (товарлар)</b>\n\nҲар бир препарат учун нарх ва акция балли фақат owner томонидан киритилади.",
+        RU: "<b>Препараты (товары)</b>\n\nЦена и акционный балл каждого препарата вводятся только владельцем.",
+    },
+    "no_perm_drugs": {UZ_CYRL: "Препаратлар бўлими фақат эга учун.", RU: "Раздел препаратов только для владельца."},
+    "btn_drug_add": {UZ_CYRL: "➕ Препарат қўшиш", RU: "➕ Добавить препарат"},
+    "btn_drugs_list": {UZ_CYRL: "📋 Препаратлар рўйхати", RU: "📋 Список препаратов"},
+    "btn_drug_edit": {UZ_CYRL: "✏️ Нарх/балл ўзгартириш", RU: "✏️ Изменить цену/балл"},
+    "enter_drug_name": {UZ_CYRL: "Препарат номини киритинг:", RU: "Введите название препарата:"},
+    "enter_drug_price": {UZ_CYRL: "Нархини киритинг (сўм):", RU: "Введите цену (сум):"},
+    "enter_drug_ball": {UZ_CYRL: "Акция баллини киритинг (бутун сон):", RU: "Введите акционный балл (целое число):"},
+    "price_invalid": {UZ_CYRL: "Нарх нотўғри. Фақат рақам киритинг.", RU: "Неверная цена. Введите только число."},
+    "drug_saved": {
+        UZ_CYRL: "✅ Препарат сақланди: #{id} {name} | Нарх: {price} | Балл: {ball}",
+        RU: "✅ Препарат сохранён: #{id} {name} | Цена: {price} | Балл: {ball}",
+    },
+    "drug_updated": {
+        UZ_CYRL: "✅ Янгиланди: {name} | Нарх: {price} | Балл: {ball}",
+        RU: "✅ Обновлено: {name} | Цена: {price} | Балл: {ball}",
+    },
+    "drugs_empty": {UZ_CYRL: "Препаратлар ҳали йўқ.", RU: "Препаратов пока нет."},
+    "drugs_header": {UZ_CYRL: "<b>Препаратлар</b>", RU: "<b>Препараты</b>"},
+    "drug_pick_edit": {UZ_CYRL: "Ўзгартириш учун препаратни танланг:", RU: "Выберите препарат для изменения:"},
+    "drug_row": {
+        UZ_CYRL: "#{id} | {name} | Нарх: {price} | Балл: {ball} | Қолдиқ: {stock}",
+        RU: "#{id} | {name} | Цена: {price} | Балл: {ball} | Остаток: {stock}",
+    },
+
+    # ================= Excel hisobotlar =================
+    "btn_excel_10d": {UZ_CYRL: "📥 Excel — 10 кунлик", RU: "📥 Excel — 10 дней"},
+    "btn_excel_30d": {UZ_CYRL: "📥 Excel — 1 ойлик", RU: "📥 Excel — 1 месяц"},
+    "btn_excel_all": {UZ_CYRL: "📥 Excel — тўлиқ", RU: "📥 Excel — полный"},
+    "btn_excel": {UZ_CYRL: "📥 Excel юклаб олиш", RU: "📥 Скачать Excel"},
+    "btn_doctors_excel": {UZ_CYRL: "📥 Врачлар Excel", RU: "📥 Врачи Excel"},
+    "btn_pharmacies_excel": {UZ_CYRL: "📥 Аптекалар Excel", RU: "📥 Аптеки Excel"},
+    "excel_caption_team": {UZ_CYRL: "📊 Жамоа ҳисоботи ({period})", RU: "📊 Отчёт команды ({period})"},
+    "excel_caption_ball": {UZ_CYRL: "💠 Балл ҳисоботи ({period})", RU: "💠 Отчёт по баллам ({period})"},
+    "excel_caption_doctors": {UZ_CYRL: "🧑‍⚕️ Докторлар рўйхати", RU: "🧑‍⚕️ Список врачей"},
+    "excel_caption_pharmacies": {UZ_CYRL: "💊 Дорихоналар рўйхати", RU: "💊 Список аптек"},
+    "excel_caption_finance": {UZ_CYRL: "💰 Молия ҳисоботи ({period})", RU: "💰 Финансовый отчёт ({period})"},
+    "period_10d": {UZ_CYRL: "10 кунлик", RU: "10 дней"},
+    "period_30d": {UZ_CYRL: "1 ойлик", RU: "1 месяц"},
+    "period_all": {UZ_CYRL: "тўлиқ давр", RU: "весь период"},
+
+    # ================= Operator: dorixona shartnoma tasdig'i =================
+    "pha_check_name": {
+        UZ_CYRL: "Дорихона номи: <b>{name}</b>\n\nНоми тўғри ёзилганми?",
+        RU: "Название аптеки: <b>{name}</b>\n\nНазвание написано верно?",
+    },
+    "btn_name_ok": {UZ_CYRL: "✅ Тўғри", RU: "✅ Верно"},
+    "btn_name_edit": {UZ_CYRL: "✏️ Номни ўзгартириш", RU: "✏️ Изменить название"},
+    "enter_new_pharmacy_name": {UZ_CYRL: "Тўғри номни киритинг:", RU: "Введите правильное название:"},
+    "enter_contract_number": {UZ_CYRL: "Келишув шартнома рақамини киритинг:", RU: "Введите номер договора:"},
+    "upload_contract_file": {
+        UZ_CYRL: "📎 Келишув шартнома файлини ҳужжат сифатида юборинг:",
+        RU: "📎 Отправьте файл договора как документ:",
+    },
+    "need_document": {UZ_CYRL: "Илтимос, файлни ҳужжат сифатида юборинг.", RU: "Пожалуйста, отправьте файл как документ."},
+    "pharmacy_approved_contract": {
+        UZ_CYRL: "✅ Дорихона <b>{name}</b> тасдиқланди.\n📄 Шартнома №{number} сақланди.",
+        RU: "✅ Аптека <b>{name}</b> подтверждена.\n📄 Договор №{number} сохранён.",
+    },
+
+    # ================= FSM oqim boshqaruvi =================
+    "flow_cancelled": {
+        UZ_CYRL: "❕ Жорий амал бекор қилинди.",
+        RU: "❕ Текущее действие отменено.",
+    },
+    "flow_expired": {
+        UZ_CYRL: "Амал муддати тугаган. Бўлимни қайтадан очинг.",
+        RU: "Действие устарело. Откройте раздел заново.",
+    },
+
+    # ================= Web app =================
+    "btn_webapp": {UZ_CYRL: "🌐 Web панель", RU: "🌐 Web-панель"},
+    "webapp_no_perm": {UZ_CYRL: "Web панель сизга очилмаган.", RU: "Web-панель вам недоступна."},
+    "webapp_link_text": {
+        UZ_CYRL: "🌐 <b>Аналитика web-панели</b>\n\nҲавола 24 соат амал қилади (кейин қайта олинг):\n{link}",
+        RU: "🌐 <b>Аналитическая web-панель</b>\n\nСсылка действует 24 часа (потом получите заново):\n{link}",
+    },
+    "btn_webapp_open": {UZ_CYRL: "🌐 Панелни очиш", RU: "🌐 Открыть панель"},
 }
 
 # Oy nomlari (KPI sarlavhasi uchun)
@@ -654,6 +961,9 @@ def month_name(lang: str | None, month: int, year: int) -> str:
 
 ROLE_KEYS: dict[Role, str] = {
     Role.OWNER: "role_owner",
+    Role.TOP_MANAGER: "role_top_manager",
+    Role.PRODUCT_MANAGER: "role_product_manager",
+    Role.REGIONAL_MANAGER: "role_regional_manager",
     Role.MANAGER: "role_manager",
     Role.OPERATOR: "role_operator",
     Role.ASSISTANT: "role_assistant",
@@ -704,6 +1014,16 @@ def variants(key: str) -> set[str]:
     return set(entry.values())
 
 
+def all_button_texts() -> frozenset[str]:
+    """Barcha tugma (btn_*) matnlari — FSM holatida tugma bosilganda oqimni
+    bekor qilish uchun (app/handlers/cancel.py)."""
+    texts: set[str] = set()
+    for key, entry in STRINGS.items():
+        if key.startswith("btn_"):
+            texts.update(entry.values())
+    return frozenset(texts)
+
+
 def role_label(lang: str | None, role: Role) -> str:
     return t(lang, ROLE_KEYS[role])
 
@@ -714,3 +1034,14 @@ def status_label(lang: str | None, status: RequestStatus) -> str:
 
 def finance_label(lang: str | None, finance_type: FinanceType) -> str:
     return t(lang, FINANCE_KEYS[finance_type])
+
+
+def ball_kind_label(lang: str | None, kind: object) -> str:
+    """BallTxKind -> lokalizatsiyalangan nom (import sikliga yo'l qo'ymaslik uchun value orqali)."""
+    value = getattr(kind, "value", str(kind))
+    return t(lang, f"ball_kind_{value}")
+
+
+def ball_status_label(lang: str | None, status: object) -> str:
+    value = getattr(status, "value", str(status))
+    return t(lang, f"ball_status_{value}")

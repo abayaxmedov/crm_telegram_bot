@@ -23,6 +23,20 @@ from app.i18n import t, variants
 from app.keyboards.reply import contracts_inline, entities_inline, main_menu, wh_cart_keyboard
 from app.services.media import answer_media
 
+
+WAREHOUSE_ROLES = {Role.MANAGER, Role.OWNER}
+
+
+async def _require_wh_user(callback, session, lang):
+    """Callback bosqichlari uchun rol tekshiruvi (soxta callback'larga qarshi)."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return None
+    if user.role not in WAREHOUSE_ROLES:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return None
+    return user
+
 router = Router(name="warehouse")
 
 
@@ -67,6 +81,10 @@ async def wh_start(message: Message, session: AsyncSession, state: FSMContext, l
 
 @router.message(WarehouseFlow.search)
 async def wh_search(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None or user.role not in WAREHOUSE_ROLES:
+        await state.clear()
+        return
     query = (message.text or "").strip()
     pharmacies = await search_pharmacies(session, query)
     if not pharmacies:
@@ -81,7 +99,7 @@ async def wh_search(message: Message, session: AsyncSession, state: FSMContext, 
 
 @router.callback_query(F.data.startswith("wh_ph:"))
 async def wh_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    if await require_callback_user(callback, session) is None:
+    if await _require_wh_user(callback, session, lang) is None:
         return
     pharmacy_id = int(callback.data.split(":", 1)[1])
     await state.update_data(pharmacy_id=pharmacy_id, cart=[])
@@ -95,7 +113,7 @@ async def wh_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, state
 
 @router.callback_query(F.data == "wh_contract:new")
 async def wh_request_contract(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_wh_user(callback, session, lang)
     if rep is None:
         return
     data = await state.get_data()
@@ -114,7 +132,7 @@ async def wh_request_contract(callback: CallbackQuery, session: AsyncSession, st
 
 @router.callback_query(F.data.startswith("wh_contract:"))
 async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    if await require_callback_user(callback, session) is None:
+    if await _require_wh_user(callback, session, lang) is None:
         return
     await state.update_data(contract_id=int(callback.data.split(":", 1)[1]), cart=[])
     await _send_drug_choice(callback.message, session, lang)
@@ -123,7 +141,7 @@ async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state
 
 @router.callback_query(F.data.startswith("wh_drug:"))
 async def wh_pick_drug(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    if await require_callback_user(callback, session) is None:
+    if await _require_wh_user(callback, session, lang) is None:
         return
     drug = await get_drug(session, int(callback.data.split(":", 1)[1]))
     if drug is None:
@@ -137,6 +155,10 @@ async def wh_pick_drug(callback: CallbackQuery, session: AsyncSession, state: FS
 
 @router.message(WarehouseFlow.qty)
 async def wh_qty(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None or user.role not in WAREHOUSE_ROLES:
+        await state.clear()
+        return
     raw = (message.text or "").strip()
     if not raw.isdigit() or int(raw) <= 0:
         await message.answer(t(lang, "qty_invalid"))
@@ -155,7 +177,7 @@ async def wh_qty(message: Message, session: AsyncSession, state: FSMContext, lan
 
 @router.callback_query(F.data == "wh_cart:add")
 async def wh_cart_add(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    if await require_callback_user(callback, session) is None:
+    if await _require_wh_user(callback, session, lang) is None:
         return
     await _send_drug_choice(callback.message, session, lang)
     await callback.answer()
@@ -163,7 +185,7 @@ async def wh_cart_add(callback: CallbackQuery, session: AsyncSession, lang: str)
 
 @router.callback_query(F.data == "wh_cart:finish")
 async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_wh_user(callback, session, lang)
     if rep is None:
         return
     data = await state.get_data()

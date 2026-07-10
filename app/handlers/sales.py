@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+"""Sotuv kiritish — medvakil VA regional menejer.
+
+Sotuvda dorixona va doktor tanlanadi; doktor balansidan dorining aksiya balli
+ayiriladi (manfiyga o'tishi mumkin). Doktorga xabar boradi (24 soatda o'chadi)."""
+
 from decimal import Decimal
 
 from aiogram import F, Router
@@ -8,27 +13,53 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Pharmacy, Role
+from app.db.models import ApprovalStatus, Pharmacy, Role, User
 from app.db.repositories import (
     create_sale,
+    get_ball_balance,
     get_doctor,
+    get_doctor_with_user,
     get_drug,
     get_pharmacy,
     list_active_drugs,
-    list_doctors_for_manager,
-    list_pharmacies_for_manager,
+    list_doctors_visible,
+    list_pharmacies_visible,
 )
 from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user
-from app.i18n import t, variants
+from app.i18n import normalize, t, variants
 from app.keyboards.reply import entities_inline, main_menu, sale_cart_keyboard
 from app.services.media import answer_media
+from app.services.notify import send_to_doctor
+from app.services.security import can_record_sales
 
 router = Router(name="sales")
+
+SELLER_ROLES = (Role.MANAGER, Role.REGIONAL_MANAGER)
 
 
 class SalesFlow(StatesGroup):
     qty = State()
+
+
+async def _require_seller(callback: CallbackQuery, session: AsyncSession, lang: str) -> User | None:
+    """Callback bosqichlari uchun ham rol tekshiruvi (soxta callback'larga qarshi)."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return None
+    if not can_record_sales(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return None
+    return user
+
+
+def _entity_in_scope(user: User, entity) -> bool:
+    """Tanlangan doktor/dorixona APPROVED va sotuvchi ko'lamida (region) bo'lishi shart."""
+    if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
+        return False
+    if user.role == Role.OWNER:
+        return True
+    return entity.region_id == user.region_id
 
 
 def _num(value) -> str:
@@ -43,7 +74,10 @@ def _ph_label(pharmacy: Pharmacy) -> str:
 
 
 def _cart_text(lang: str, cart: list[dict]) -> str:
-    lines = [f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}." for i, c in enumerate(cart, 1)]
+    lines = [
+        f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}. (💠 {int(c['ball']) * int(c['qty'])})"
+        for i, c in enumerate(cart, 1)
+    ]
     return t(lang, "cart_title") + "\n" + "\n".join(lines)
 
 
@@ -52,16 +86,18 @@ async def _send_drug_choice(message: Message, session: AsyncSession, lang: str) 
     if not drugs:
         await message.answer(t(lang, "sales_no_drugs"))
         return
-    items = [(d.id, f"{d.name} ({t(lang, 'stock_short')}: {d.stock} {t(lang, 'pcs')})") for d in drugs]
+    items = [
+        (d.id, f"{d.name} ({t(lang, 'stock_short')}: {d.stock} | 💠 {int(d.ball or 0)})") for d in drugs
+    ]
     await message.answer(t(lang, "sales_choose_drug"), reply_markup=entities_inline(items, "sale_drug"))
 
 
-@router.message(F.text.in_(variants("btn_sales")), RoleFilter(Role.MANAGER))
+@router.message(F.text.in_(variants("btn_sales")), RoleFilter(*SELLER_ROLES))
 async def sales_start(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     rep = await require_user(message, session)
     if rep is None:
         return
-    pharmacies = await list_pharmacies_for_manager(session, rep)
+    pharmacies = await list_pharmacies_visible(session, rep)
     if not pharmacies:
         await message.answer(t(lang, "sales_no_pharmacies"))
         return
@@ -74,16 +110,20 @@ async def sales_start(message: Message, session: AsyncSession, state: FSMContext
 
 @router.callback_query(F.data.startswith("sale_ph:"))
 async def sale_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_seller(callback, session, lang)
     if rep is None:
         return
-    pharmacy_id = int(callback.data.split(":", 1)[1])
-    doctors = await list_doctors_for_manager(session, rep)
+    pharmacy = await get_pharmacy(session, int(callback.data.split(":", 1)[1]))
+    # Soxta callback'ga qarshi: dorixona APPROVED va sotuvchi regionida bo'lishi shart.
+    if not _entity_in_scope(rep, pharmacy):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    doctors = await list_doctors_visible(session, rep)
     if not doctors:
         await callback.message.answer(t(lang, "sales_no_doctors"))
         await callback.answer()
         return
-    await state.update_data(pharmacy_id=pharmacy_id, cart=[])
+    await state.update_data(pharmacy_id=pharmacy.id, doctor_id=None, cart=[])
     await callback.message.answer(
         t(lang, "sales_choose_doctor"),
         reply_markup=entities_inline([(d.id, d.full_name) for d in doctors], "sale_doc"),
@@ -93,18 +133,31 @@ async def sale_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, sta
 
 @router.callback_query(F.data.startswith("sale_doc:"))
 async def sale_pick_doctor(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_seller(callback, session, lang)
     if rep is None:
         return
-    await state.update_data(doctor_id=int(callback.data.split(":", 1)[1]))
+    data = await state.get_data()
+    if not data.get("pharmacy_id"):
+        # Eski (stale) tugma — oqim boshidan boshlanishi kerak.
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
+        return
+    doctor = await get_doctor(session, int(callback.data.split(":", 1)[1]))
+    if not _entity_in_scope(rep, doctor):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await state.update_data(doctor_id=doctor.id)
     await _send_drug_choice(callback.message, session, lang)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sale_drug:"))
 async def sale_pick_drug(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_seller(callback, session, lang)
     if rep is None:
+        return
+    data = await state.get_data()
+    if not data.get("pharmacy_id") or not data.get("doctor_id"):
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
         return
     drug = await get_drug(session, int(callback.data.split(":", 1)[1]))
     if drug is None:
@@ -118,6 +171,10 @@ async def sale_pick_drug(callback: CallbackQuery, session: AsyncSession, state: 
 
 @router.message(SalesFlow.qty)
 async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    rep = await require_user(message, session)
+    if rep is None or not can_record_sales(rep.role):
+        await state.clear()
+        return
     raw = (message.text or "").strip()
     if not raw.isdigit() or int(raw) <= 0:
         await message.answer(t(lang, "qty_invalid"))
@@ -128,12 +185,22 @@ async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, l
     if drug is None:
         await state.set_state(None)
         return
-    if qty > drug.stock:
-        await message.answer(t(lang, "qty_over_stock", stock=drug.stock))
+    cart = data.get("cart", [])
+    # Savatdagi shu dori pozitsiyalarini ham hisobga olib qoldiqni tekshiramiz.
+    already = sum(int(c["qty"]) for c in cart if c["drug_id"] == drug.id)
+    if qty + already > drug.stock:
+        await message.answer(t(lang, "qty_over_stock", stock=max(0, drug.stock - already)))
         return
 
-    cart = data.get("cart", [])
-    cart.append({"drug_id": drug.id, "name": drug.name, "qty": qty, "rate": str(drug.doctor_bonus_per_pack)})
+    cart.append(
+        {
+            "drug_id": drug.id,
+            "name": drug.name,
+            "qty": qty,
+            "price": str(drug.price or 0),
+            "ball": int(drug.ball or 0),
+        }
+    )
     await state.update_data(cart=cart)
     await state.set_state(None)
     await message.answer(_cart_text(lang, cart), reply_markup=sale_cart_keyboard(lang))
@@ -141,7 +208,7 @@ async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, l
 
 @router.callback_query(F.data == "sale_cart:add")
 async def sale_cart_add(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    if await require_callback_user(callback, session) is None:
+    if await _require_seller(callback, session, lang) is None:
         return
     await _send_drug_choice(callback.message, session, lang)
     await callback.answer()
@@ -149,17 +216,23 @@ async def sale_cart_add(callback: CallbackQuery, session: AsyncSession, lang: st
 
 @router.callback_query(F.data == "sale_cart:finish")
 async def sale_cart_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    rep = await require_callback_user(callback, session)
+    rep = await _require_seller(callback, session, lang)
     if rep is None:
         return
     data = await state.get_data()
+    # Double-tap himoyasi: state'ni sotuv yaratishdan OLDIN tozalaymiz — ikkinchi
+    # bosish bo'sh savatni ko'rib hech narsa yozmaydi.
+    await state.clear()
     cart = data.get("cart", [])
-    if not cart:
+    if not cart or not data.get("pharmacy_id") or not data.get("doctor_id"):
         await callback.answer(t(lang, "cart_empty"), show_alert=True)
         return
 
-    pharmacy = await get_pharmacy(session, data["pharmacy_id"]) if data.get("pharmacy_id") else None
-    doctor = await get_doctor(session, data["doctor_id"]) if data.get("doctor_id") else None
+    pharmacy = await get_pharmacy(session, data["pharmacy_id"])
+    doctor = await get_doctor(session, data["doctor_id"])
+    if not _entity_in_scope(rep, pharmacy) or not _entity_in_scope(rep, doctor):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
 
     items = []
     for entry in cart:
@@ -169,21 +242,43 @@ async def sale_cart_finish(callback: CallbackQuery, session: AsyncSession, state
 
     sale = await create_sale(session, rep=rep, pharmacy=pharmacy, doctor=doctor, items=items)
     await session.commit()
-    await state.clear()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     detail = "\n".join(
-        f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')} × {_num(c['rate'])} = {_num(Decimal(c['rate']) * c['qty'])}"
+        f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')} × 💠{c['ball']} = 💠{int(c['ball']) * int(c['qty'])}"
         for i, c in enumerate(cart, 1)
     )
+    # Atomik ayirishdan keyin balансни bazadan o'qiymiz.
+    doctor_balance = await get_ball_balance(session, doctor_id=doctor.id) if doctor else 0
     await callback.message.answer(
         t(
             lang,
-            "sale_done",
+            "sale_done_ball",
             doctor=doctor.full_name if doctor else "-",
-            bonus=_num(sale.total_bonus),
+            price=_num(sale.total_price),
+            ball=sale.total_ball,
+            balance=doctor_balance,
             detail=detail,
         )
     )
+
+    # Doktorga xabar (botga ulangan bo'lsa) — 24 soatda o'chadi.
+    if doctor is not None and sale.total_ball > 0:
+        doctor_linked = await get_doctor_with_user(session, doctor.id)
+        if doctor_linked is not None and doctor_linked.bot_user is not None:
+            doc_lang = normalize(doctor_linked.bot_user.language)
+            sent = await send_to_doctor(
+                callback.bot,
+                session,
+                doctor_linked,
+                t(doc_lang, "ball_deducted_doctor", amount=sale.total_ball, balance=doctor_balance),
+            )
+            if sent:
+                await session.commit()
+
     await callback.answer()
     await answer_media(
         callback.message, screen="menu", text=t(lang, "menu_text"), lang=lang,

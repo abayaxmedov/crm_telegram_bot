@@ -11,7 +11,12 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Role, User
-from app.db.repositories import bind_invited_user, get_user_by_invite_token, get_user_by_telegram_id
+from app.db.repositories import (
+    bind_invited_user,
+    get_user_by_invite_token,
+    get_user_by_telegram_id,
+    try_link_doctor_user,
+)
 from app.i18n import LANGUAGES, normalize, role_label, t, variants
 from app.keyboards.reply import language_inline_keyboard, main_menu, phone_number_keyboard
 from app.services.media import answer_media
@@ -263,6 +268,9 @@ async def save_user_phone(
         return
 
     user.phone_number = phone_number.strip()
+    # DOCTOR bo'lsa — telefon orqali doktor yozuviga bog'laymiz (ball olishi uchun).
+    if user.role == Role.DOCTOR:
+        await try_link_doctor_user(session, user)
     await session.commit()
     await state.clear()
 

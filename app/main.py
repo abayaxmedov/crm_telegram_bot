@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web as aioweb
 
 from app.config import settings
 from app.db.repositories import seed_owners
@@ -14,7 +15,9 @@ from app.db.session import AsyncSessionLocal, init_db
 from app.handlers import setup_routers
 from app.middlewares.db import DbSessionMiddleware
 from app.middlewares.language import LanguageMiddleware
+from app.services.notify import deletion_sweeper
 from app.services.profile import setup_bot_profile
+from app.webapp.server import create_webapp
 
 
 async def main() -> None:
@@ -41,9 +44,23 @@ async def main() -> None:
     setup_routers(dp)
 
     await setup_bot_profile(bot)
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+    # Analitika web-paneli (aiohttp) — polling bilan bitta processda.
+    runner = aioweb.AppRunner(create_webapp())
+    await runner.setup()
+    site = aioweb.TCPSite(runner, settings.webapp_host, settings.webapp_port)
+    await site.start()
+    logging.info("Webapp ishga tushdi: http://%s:%s (%s)", settings.webapp_host, settings.webapp_port, settings.webapp_base_url)
+
+    # Doktor xabarlarini 24 soatdan keyin o'chiruvchi fon vazifasi.
+    sweeper_task = asyncio.create_task(deletion_sweeper(bot))
+
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        sweeper_task.cancel()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-

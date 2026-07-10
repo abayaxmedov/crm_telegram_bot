@@ -44,6 +44,12 @@ class Settings:
     company_name: str
     default_timezone: str
     bot_username: str | None = None
+    # Analitika web-paneli (owner/TOP/product menejer uchun).
+    webapp_host: str = "0.0.0.0"
+    webapp_port: int = 8080
+    webapp_base_url: str = "http://localhost:8080"
+    # Kelajakda HTTPS domen olinganda: Telegram ichidagi WebApp tugmasi uchun URL.
+    webapp_telegram_url: str | None = None
 
     def validate(self) -> None:
         if not self.bot_token:
@@ -65,5 +71,9 @@ settings = Settings(
     company_name=os.getenv("COMPANY_NAME", "Ichki CRM").strip(),
     default_timezone=os.getenv("TZ", "Asia/Tashkent").strip(),
     bot_username=os.getenv("BOT_USERNAME", "").strip() or None,
+    webapp_host=os.getenv("WEBAPP_HOST", "0.0.0.0").strip(),
+    webapp_port=int(os.getenv("WEBAPP_PORT", "8080").strip() or "8080"),
+    webapp_base_url=os.getenv("WEBAPP_BASE_URL", "").strip() or f"http://localhost:{os.getenv('WEBAPP_PORT', '8080').strip() or '8080'}",
+    webapp_telegram_url=os.getenv("WEBAPP_TELEGRAM_URL", "").strip() or None,
 )
 

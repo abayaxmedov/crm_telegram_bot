@@ -5,23 +5,29 @@ from html import escape
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Role
+from app.db.models import ApprovalStatus
 from app.db.repositories import (
     add_doctor,
     add_pharmacy,
-    list_doctors,
-    list_doctors_for_manager,
-    list_pharmacies,
-    list_pharmacies_for_manager,
+    get_region,
+    list_doctors_visible,
+    list_pharmacies_visible,
+    list_regions,
 )
-from app.handlers.utils import clean_optional, require_user, safe
+from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import doctors_menu, pharmacies_menu
+from app.keyboards.reply import doctors_menu, entities_inline, pharmacies_menu
+from app.services.excel import build_xlsx
 from app.services.media import answer_media
-from app.services.security import can_manage_directories, can_manage_pharmacies
+from app.services.security import (
+    can_add_directories,
+    can_view_directories,
+    can_view_pharmacies,
+    creates_entity_approved,
+)
 
 router = Router(name="directories")
 
@@ -32,6 +38,7 @@ class DoctorFlow(StatesGroup):
     location = State()
     category = State()
     notes = State()
+    region = State()
 
 
 class PharmacyFlow(StatesGroup):
@@ -42,6 +49,25 @@ class PharmacyFlow(StatesGroup):
     inn = State()
     filial = State()
     notes = State()
+    region = State()
+
+
+async def _ask_region(message: Message, session: AsyncSession, state: FSMContext, lang: str, next_state: State, prefix: str) -> bool:
+    """Region ro'yxatini inline ko'rsatadi. Region bo'lmasa False qaytaradi."""
+    regions = await list_regions(session)
+    if not regions:
+        await message.answer(t(lang, "no_regions_create_first"))
+        await state.clear()
+        return False
+    await state.set_state(next_state)
+    await message.answer(
+        t(lang, "choose_region"),
+        reply_markup=entities_inline([(r.id, r.name) for r in regions], prefix),
+    )
+    return True
+
+
+# ==================== Doktorlar ====================
 
 
 @router.message(F.text.in_(variants("btn_doctors")))
@@ -49,7 +75,16 @@ async def doctors_panel(message: Message, session: AsyncSession, lang: str) -> N
     user = await require_user(message, session)
     if user is None:
         return
-    await answer_media(message, screen="doctors", text=t(lang, "doctors_text"), lang=lang, reply_markup=doctors_menu(lang))
+    if not can_view_directories(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
+    await answer_media(
+        message,
+        screen="doctors",
+        text=t(lang, "doctors_text"),
+        lang=lang,
+        reply_markup=doctors_menu(lang, can_add=can_add_directories(user.role)),
+    )
 
 
 @router.message(F.text.in_(variants("btn_doctor_add")))
@@ -57,7 +92,7 @@ async def doctor_start(message: Message, session: AsyncSession, state: FSMContex
     user = await require_user(message, session)
     if user is None:
         return
-    if not can_manage_directories(user.role):
+    if not can_add_directories(user.role):
         await message.answer(t(lang, "no_perm_doctor_add"))
         return
     await state.set_state(DoctorFlow.full_name)
@@ -93,11 +128,28 @@ async def doctor_category(message: Message, state: FSMContext, lang: str) -> Non
 
 
 @router.message(DoctorFlow.notes)
-async def doctor_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+async def doctor_notes(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
+    await state.update_data(notes=clean_optional(message.text))
+    await _ask_region(message, session, state, lang, DoctorFlow.region, "doc_region")
+
+
+@router.callback_query(DoctorFlow.region, F.data.startswith("doc_region:"))
+async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    region_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
+    region = await get_region(session, region_id)
+    if region is None:
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await callback.answer()
+
     data = await state.get_data()
+    status = ApprovalStatus.APPROVED if creates_entity_approved(user.role) else ApprovalStatus.PENDING
     doctor = await add_doctor(
         session,
         full_name=data["full_name"],
@@ -105,17 +157,18 @@ async def doctor_finish(message: Message, session: AsyncSession, state: FSMConte
         location_text=data.get("location"),
         class_category=data.get("category"),
         manager=user,
-        notes=clean_optional(message.text),
+        notes=data.get("notes"),
+        region_id=region_id,
+        approval_status=status,
     )
     await session.commit()
     await state.clear()
-    await answer_media(
-        message,
-        screen="done",
-        text=t(lang, "doctor_saved", id=doctor.id, name=escape(doctor.full_name)),
-        lang=lang,
-        reply_markup=doctors_menu(lang),
-    )
+
+    if status == ApprovalStatus.APPROVED:
+        text = t(lang, "doctor_saved", id=doctor.id, name=escape(doctor.full_name))
+    else:
+        text = t(lang, "entity_pending")
+    await answer_media(callback.message, screen="done", text=text, lang=lang, reply_markup=doctors_menu(lang))
 
 
 @router.message(F.text.in_(variants("btn_doctors_list")))
@@ -123,20 +176,54 @@ async def doctors_list(message: Message, session: AsyncSession, lang: str) -> No
     user = await require_user(message, session)
     if user is None:
         return
-    doctors = (
-        await list_doctors_for_manager(session, user)
-        if user.role == Role.MANAGER
-        else await list_doctors(session)
-    )
+    if not can_view_directories(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
+    menu = doctors_menu(lang, can_add=can_add_directories(user.role))
+    doctors = await list_doctors_visible(session, user)
     if not doctors:
-        await message.answer(t(lang, "doctors_empty"), reply_markup=doctors_menu(lang))
+        await message.answer(t(lang, "doctors_empty"), reply_markup=menu)
         return
     text = t(lang, "doctors_header") + "\n\n" + "\n".join(
-        f"#{doctor.id} | {safe(doctor.full_name)} | {safe(doctor.phone_number)} | "
-        f"{t(lang, 'doctor_bonus')}: {doctor.bonus_balance:,.2f}"
-        for doctor in doctors
+        f"#{doctor.id} | {safe(doctor.full_name)} | {safe(doctor.phone_number)} | 💠 {int(doctor.ball_balance or 0)}"
+        for doctor in doctors[:50]
     )
-    await message.answer(text, reply_markup=doctors_menu(lang))
+    await message.answer(text, reply_markup=menu)
+
+
+@router.message(F.text.in_(variants("btn_doctors_excel")))
+async def doctors_excel(message: Message, session: AsyncSession, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None:
+        return
+    if not can_view_directories(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
+    doctors = await list_doctors_visible(session, user, limit=5000)
+    rows = [
+        [
+            d.id,
+            d.full_name,
+            d.phone_number,
+            d.region.name if d.region else "-",
+            d.class_category,
+            d.location_text,
+            d.manager.full_name if d.manager else "-",
+            int(d.ball_balance or 0),
+            str(d.created_at)[:16] if d.created_at else "-",
+        ]
+        for d in doctors
+    ]
+    data = build_xlsx(
+        [("Докторлар", ["ID", "ФИО", "Телефон", "Регион", "Категория", "Манзил", "Масъул", "Балл баланс", "Яратилган"], rows)]
+    )
+    await message.answer_document(
+        document=BufferedInputFile(data, filename="doctors.xlsx"),
+        caption=t(lang, "excel_caption_doctors"),
+    )
+
+
+# ==================== Dorixonalar ====================
 
 
 @router.message(F.text.in_(variants("btn_pharmacies")))
@@ -144,8 +231,15 @@ async def pharmacies_panel(message: Message, session: AsyncSession, lang: str) -
     user = await require_user(message, session)
     if user is None:
         return
+    if not can_view_pharmacies(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
     await answer_media(
-        message, screen="pharmacies", text=t(lang, "pharmacies_text"), lang=lang, reply_markup=pharmacies_menu(lang)
+        message,
+        screen="pharmacies",
+        text=t(lang, "pharmacies_text"),
+        lang=lang,
+        reply_markup=pharmacies_menu(lang, can_add=can_add_directories(user.role)),
     )
 
 
@@ -154,7 +248,7 @@ async def pharmacy_start(message: Message, session: AsyncSession, state: FSMCont
     user = await require_user(message, session)
     if user is None:
         return
-    if not can_manage_pharmacies(user.role):
+    if not can_add_directories(user.role):
         await message.answer(t(lang, "no_perm_pharmacy_add"))
         return
     await state.set_state(PharmacyFlow.name)
@@ -204,11 +298,28 @@ async def pharmacy_filial(message: Message, state: FSMContext, lang: str) -> Non
 
 
 @router.message(PharmacyFlow.notes)
-async def pharmacy_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+async def pharmacy_notes(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
+    await state.update_data(notes=clean_optional(message.text))
+    await _ask_region(message, session, state, lang, PharmacyFlow.region, "pha_region")
+
+
+@router.callback_query(PharmacyFlow.region, F.data.startswith("pha_region:"))
+async def pharmacy_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    region_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
+    region = await get_region(session, region_id)
+    if region is None:
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await callback.answer()
+
     data = await state.get_data()
+    status = ApprovalStatus.APPROVED if creates_entity_approved(user.role) else ApprovalStatus.PENDING
     pharmacy = await add_pharmacy(
         session,
         name=data["name"],
@@ -216,19 +327,20 @@ async def pharmacy_finish(message: Message, session: AsyncSession, state: FSMCon
         location_text=data.get("location"),
         responsible_person=data.get("responsible"),
         manager=user,
-        notes=clean_optional(message.text),
+        notes=data.get("notes"),
         inn=data.get("inn"),
         filial=data.get("filial"),
+        region_id=region_id,
+        approval_status=status,
     )
     await session.commit()
     await state.clear()
-    await answer_media(
-        message,
-        screen="done",
-        text=t(lang, "pharmacy_saved", id=pharmacy.id, name=escape(pharmacy.name)),
-        lang=lang,
-        reply_markup=pharmacies_menu(lang),
-    )
+
+    if status == ApprovalStatus.APPROVED:
+        text = t(lang, "pharmacy_saved", id=pharmacy.id, name=escape(pharmacy.name))
+    else:
+        text = t(lang, "entity_pending")
+    await answer_media(callback.message, screen="done", text=text, lang=lang, reply_markup=pharmacies_menu(lang))
 
 
 @router.message(F.text.in_(variants("btn_pharmacies_list")))
@@ -236,18 +348,57 @@ async def pharmacies_list(message: Message, session: AsyncSession, lang: str) ->
     user = await require_user(message, session)
     if user is None:
         return
-    pharmacies = (
-        await list_pharmacies_for_manager(session, user)
-        if user.role == Role.MANAGER
-        else await list_pharmacies(session)
-    )
+    if not can_view_pharmacies(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
+    menu = pharmacies_menu(lang, can_add=can_add_directories(user.role))
+    pharmacies = await list_pharmacies_visible(session, user)
     if not pharmacies:
-        await message.answer(t(lang, "pharmacies_empty"), reply_markup=pharmacies_menu(lang))
+        await message.answer(t(lang, "pharmacies_empty"), reply_markup=menu)
         return
     text = t(lang, "pharmacies_header") + "\n\n" + "\n".join(
         f"#{pharmacy.id} | {safe(pharmacy.name)}"
         + (f" (Ф: {safe(pharmacy.filial)})" if pharmacy.filial else "")
         + f" | ИНН {safe(pharmacy.inn)} | {safe(pharmacy.responsible_person)}"
-        for pharmacy in pharmacies
+        for pharmacy in pharmacies[:50]
     )
-    await message.answer(text, reply_markup=pharmacies_menu(lang))
+    await message.answer(text, reply_markup=menu)
+
+
+@router.message(F.text.in_(variants("btn_pharmacies_excel")))
+async def pharmacies_excel(message: Message, session: AsyncSession, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None:
+        return
+    if not can_view_pharmacies(user.role):
+        await message.answer(t(lang, "section_closed"))
+        return
+    pharmacies = await list_pharmacies_visible(session, user, limit=5000)
+    rows = [
+        [
+            p.id,
+            p.name,
+            p.filial,
+            p.inn,
+            p.phone_number,
+            p.region.name if p.region else "-",
+            p.responsible_person,
+            p.location_text,
+            p.manager.full_name if p.manager else "-",
+            str(p.created_at)[:16] if p.created_at else "-",
+        ]
+        for p in pharmacies
+    ]
+    data = build_xlsx(
+        [
+            (
+                "Дорихоналар",
+                ["ID", "Номи", "Филиал", "ИНН", "Телефон", "Регион", "Масъул шахс", "Манзил", "Ким киритган", "Яратилган"],
+                rows,
+            )
+        ]
+    )
+    await message.answer_document(
+        document=BufferedInputFile(data, filename="pharmacies.xlsx"),
+        caption=t(lang, "excel_caption_pharmacies"),
+    )

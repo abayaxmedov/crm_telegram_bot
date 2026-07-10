@@ -24,30 +24,72 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     finance = t(lang, "btn_finance")
     salary = t(lang, "btn_salary")
     language = t(lang, "btn_language")
+    regions = t(lang, "btn_regions")
+    reports = t(lang, "btn_hierarchy_reports")
+    material_upload = t(lang, "btn_material_upload")
+    materials = t(lang, "btn_materials")
+    ball = t(lang, "btn_ball")
+    drugs = t(lang, "btn_drugs")
+    webapp = t(lang, "btn_webapp")
 
     if role == Role.OWNER:
+        # Owner — cheklovsiz: barcha bo'limlar ochiq.
         rows = [
-            [admin, doctors],
-            [pharmacies, daily],
-            [requests, finance],
-            [salary, language],
+            [admin, regions],
+            [doctors, pharmacies],
+            [drugs, ball],
+            [daily, requests],
+            [finance, salary],
+            [reports, materials],
+            [material_upload, webapp],
+            [language],
+        ]
+    elif role == Role.TOP_MANAGER:
+        # TOP menejer: faqat hisobotlar (barcha turdagi) + ball + web panel.
+        rows = [
+            [reports, finance],
+            [doctors, pharmacies],
+            [ball, webapp],
+            [materials, language],
+        ]
+    elif role == Role.PRODUCT_MANAGER:
+        # Product menejer: dori materiallarini yuklaydi + barcha hisobotlar.
+        rows = [
+            [material_upload, materials],
+            [reports, finance],
+            [doctors, pharmacies],
+            [webapp, language],
+        ]
+    elif role == Role.REGIONAL_MANAGER:
+        # Regional menejer: o'z regioni + sotuv kiritish + ball.
+        rows = [
+            [doctors, pharmacies],
+            [t(lang, "btn_sales"), ball],
+            [reports, materials],
+            [language],
         ]
     elif role == Role.MANAGER:
-        # Медвакил (медпредставитель) menyusi — test3640bot uslubida.
+        # Медвакил: moliya o'rniga BALL bo'limi.
         rows = [
             [doctors, pharmacies],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
-            [t(lang, "btn_diary"), finance],
-            [salary],
-            [language],
+            [t(lang, "btn_diary"), ball],
+            [salary, materials],
+            [reports, language],
         ]
     elif role == Role.OPERATOR:
-        # Оператор фақат складга заявкаларни тасдиқлайди + тил.
-        rows = [[t(lang, "btn_wh_approve")], [language]]
-    elif role == Role.ASSISTANT:
-        rows = [[requests, daily], [doctors, pharmacies], [salary, language]]
+        # Оператор: склад + doktor/dorixona tasdig'i + dorixonalar bo'limi (owner'nikiday).
+        rows = [
+            [t(lang, "btn_wh_approve")],
+            [t(lang, "btn_entity_approve")],
+            [pharmacies, language],
+        ]
+    elif role == Role.DOCTOR:
+        # Доктор: faqat til tanlash.
+        rows = [[language]]
     else:
-        rows = [[daily, salary], [requests], [language]]
+        # ASSISTANT (deprecated), PHARMACY, noma'lum — faqat til.
+        rows = [[language]]
     return reply_keyboard(rows, placeholder=t(lang, "ph_crm_section"))
 
 
@@ -80,17 +122,81 @@ def admin_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def doctors_menu(lang: str) -> ReplyKeyboardMarkup:
+def regions_menu(lang: str) -> ReplyKeyboardMarkup:
     return reply_keyboard(
-        [[t(lang, "btn_doctor_add"), t(lang, "btn_doctors_list")], [t(lang, "btn_menu")]],
+        [[t(lang, "btn_region_add"), t(lang, "btn_regions_list")], [t(lang, "btn_menu")]],
         placeholder=t(lang, "ph_select_section"),
     )
 
 
-def pharmacies_menu(lang: str) -> ReplyKeyboardMarkup:
+def materials_menu(lang: str) -> ReplyKeyboardMarkup:
     return reply_keyboard(
-        [[t(lang, "btn_pharmacy_add"), t(lang, "btn_pharmacies_list")], [t(lang, "btn_menu")]],
+        [[t(lang, "btn_material_upload"), t(lang, "btn_materials")], [t(lang, "btn_menu")]],
         placeholder=t(lang, "ph_select_section"),
+    )
+
+
+def doctors_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
+    rows = []
+    if can_add:
+        rows.append([t(lang, "btn_doctor_add"), t(lang, "btn_doctors_list")])
+    else:
+        rows.append([t(lang, "btn_doctors_list")])
+    rows.append([t(lang, "btn_doctors_excel")])
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
+
+
+def pharmacies_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
+    rows = []
+    if can_add:
+        rows.append([t(lang, "btn_pharmacy_add"), t(lang, "btn_pharmacies_list")])
+    else:
+        rows.append([t(lang, "btn_pharmacies_list")])
+    rows.append([t(lang, "btn_pharmacies_excel")])
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
+
+
+def drugs_menu(lang: str) -> ReplyKeyboardMarkup:
+    return reply_keyboard(
+        [
+            [t(lang, "btn_drug_add"), t(lang, "btn_drugs_list")],
+            [t(lang, "btn_drug_edit")],
+            [t(lang, "btn_menu")],
+        ],
+        placeholder=t(lang, "ph_select_section"),
+    )
+
+
+def ball_inline_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_ball_send"), callback_data="ball:send")],
+            [InlineKeyboardButton(text=t(lang, "btn_ball_report"), callback_data="ball:report")],
+        ]
+    )
+
+
+def ball_accept_keyboard(lang: str, tx_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "btn_ball_accept"), callback_data=f"ball_acc:{tx_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_ball_reject"), callback_data=f"ball_rej:{tx_id}"),
+            ]
+        ]
+    )
+
+
+def excel_periods_keyboard(lang: str, prefix: str) -> InlineKeyboardMarkup:
+    """Excel yuklab olish davrlari: callback '{prefix}:10d|30d|all'."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_excel_10d"), callback_data=f"{prefix}:10d")],
+            [InlineKeyboardButton(text=t(lang, "btn_excel_30d"), callback_data=f"{prefix}:30d")],
+            [InlineKeyboardButton(text=t(lang, "btn_excel_all"), callback_data=f"{prefix}:all")],
+        ]
     )
 
 
@@ -108,11 +214,14 @@ def requests_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def finance_menu(lang: str) -> ReplyKeyboardMarkup:
-    return reply_keyboard(
-        [[t(lang, "btn_finance_add"), t(lang, "btn_finance_report")], [t(lang, "btn_menu")]],
-        placeholder=t(lang, "ph_select_section"),
-    )
+def finance_menu(lang: str, is_owner: bool = True) -> ReplyKeyboardMarkup:
+    if is_owner:
+        rows = [[t(lang, "btn_finance_add"), t(lang, "btn_finance_report")]]
+    else:
+        # TOP/product menejer: faqat hisobot (operatsiya kiritish owner-only).
+        rows = [[t(lang, "btn_finance_report")]]
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 
 
 def salary_menu(lang: str, is_owner: bool = False) -> ReplyKeyboardMarkup:

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRM Аналитика</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#f4f6fb; --card:#ffffff; --ink:#1c2333; --muted:#6b7487; --accent:#4a6fa5; --line:#e3e8f2; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--bg); color:var(--ink); padding:20px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .filters { display:flex; flex-wrap:wrap; gap:10px; background:var(--card); border:1px solid var(--line);
+             border-radius:12px; padding:12px 14px; margin-bottom:16px; align-items:end; }
+  .filters label { display:block; font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .filters select, .filters input { padding:7px 10px; border:1px solid var(--line); border-radius:8px;
+             background:#fff; font-size:13px; min-width:130px; }
+  .filters button { padding:8px 18px; background:var(--accent); color:#fff; border:0; border-radius:8px;
+             font-size:13px; cursor:pointer; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card .k { font-size:12px; color:var(--muted); }
+  .card .v { font-size:24px; font-weight:700; margin-top:4px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+  @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .panel h3 { font-size:14px; margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.num, th.num { text-align:right; }
+  .neg { color:#c0392b; font-weight:600; }
+  .pos { color:#1e8e4e; }
+  #error { display:none; background:#fdecea; color:#b3261e; border:1px solid #f5c6c0;
+           border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+  .chartbox { position:relative; height:260px; }
+  .custom-dates { display:none; gap:10px; }
+  .custom-dates.show { display:flex; }
+</style>
+</head>
+<body>
+  <h1>📊 CRM Аналитика панели</h1>
+  <div class="sub" id="userline">Юкланмоқда...</div>
+  <div id="error"></div>
+
+  <div class="filters">
+    <div><label>Давр</label>
+      <select id="period">
+        <option value="10d">10 кунлик</option>
+        <option value="30d" selected>1 ойлик</option>
+        <option value="all">Тўлиқ давр</option>
+        <option value="custom">Сана оралиғи</option>
+      </select>
+    </div>
+    <div class="custom-dates" id="customDates">
+      <div><label>Бошланиши</label><input type="date" id="start"></div>
+      <div><label>Тугаши</label><input type="date" id="end"></div>
+    </div>
+    <div><label>Регион</label><select id="region"><option value="">Барчаси</option></select></div>
+    <div><label>Сотувчи (медвакил/регионал)</label><select id="rep"><option value="">Барчаси</option></select></div>
+    <div><button id="apply">Кўрсатиш</button></div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="k">Сотувлар сони</div><div class="v" id="c_sales">—</div></div>
+    <div class="card"><div class="k">Упаковка (дона)</div><div class="v" id="c_qty">—</div></div>
+    <div class="card"><div class="k">Тушум (сўм)</div><div class="v" id="c_revenue">—</div></div>
+    <div class="card"><div class="k">Айирилган балл</div><div class="v" id="c_ball">—</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel"><h3>Кунлик динамика</h3><div class="chartbox"><canvas id="chDay"></canvas></div></div>
+    <div class="panel"><h3>Регионлар кесимида (упаковка)</h3><div class="chartbox"><canvas id="chRegion"></canvas></div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel"><h3>Сотувчилар кесимида</h3>
+      <table id="tRep"><thead><tr><th>Сотувчи</th><th>Регион</th><th class="num">Сотув</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel"><h3>Препаратлар кесимида</h3>
+      <table id="tDrug"><thead><tr><th>Препарат</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel"><h3>💠 Балл баланслари (ходимлар)</h3>
+      <table id="tBallUsers"><thead><tr><th>Ходим</th><th>Роль</th><th>Регион</th><th class="num">Баланс</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel"><h3>💠 Балл баланслари (докторлар)</h3>
+      <table id="tBallDocs"><thead><tr><th>Доктор</th><th>Регион</th><th class="num">Баланс</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <h3>💠 Балл айланмаси ва охирги ҳаракатлар <span id="ballTurnover" style="font-weight:400;color:var(--muted);font-size:12px;"></span></h3>
+    <table id="tBallTx"><thead><tr><th>Сана</th><th>Тури</th><th>Кимдан</th><th>Кимга</th><th class="num">Балл</th><th>Ҳолат</th></tr></thead><tbody></tbody></table>
+  </div>
+
+<script>
+const token = new URLSearchParams(location.search).get("token") || "";
+const fmt = n => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100);
+const KIND = {mint:"Эмиссия", transfer:"Ўтказма", sale_deduct:"Сотувдан айириш"};
+const STATUS = {pending:"кутилмоқда", accepted:"қабул қилинган", rejected:"рад этилган", expired:"муддати тугаган"};
+let chDay = null, chRegion = null;
+
+function showError(msg){ const el = document.getElementById("error"); el.textContent = msg; el.style.display = "block"; }
+
+function params(){
+  const p = new URLSearchParams({token, period: document.getElementById("period").value});
+  if (p.get("period") === "custom"){
+    p.set("start", document.getElementById("start").value);
+    p.set("end", document.getElementById("end").value);
+  }
+  const region = document.getElementById("region").value;
+  const rep = document.getElementById("rep").value;
+  if (region) p.set("region_id", region);
+  if (rep) p.set("rep_id", rep);
+  return p.toString();
+}
+
+async function getJSON(path){
+  const res = await fetch(path);
+  if (res.status === 401) throw new Error("Ҳавола муддати тугаган — ботдан янги ҳавола олинг (🌐 Web панель).");
+  if (!res.ok) throw new Error("Сервер хатоси: " + res.status);
+  return res.json();
+}
+
+async function loadMeta(){
+  const meta = await getJSON("/api/meta?token=" + encodeURIComponent(token));
+  document.getElementById("userline").textContent = meta.user.name + " (" + meta.user.role + ")";
+  const regionSel = document.getElementById("region");
+  meta.regions.forEach(r => regionSel.add(new Option(r.name, r.id)));
+  const repSel = document.getElementById("rep");
+  meta.reps.forEach(u => repSel.add(new Option(u.name + (u.region ? " — " + u.region : ""), u.id)));
+}
+
+function fillTable(id, rows, cells){
+  const tbody = document.querySelector(id + " tbody");
+  tbody.innerHTML = "";
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = cells(r);
+    tbody.appendChild(tr);
+  });
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Маълумот йўқ</td></tr>';
+}
+
+async function loadSummary(){
+  const s = await getJSON("/api/summary?" + params());
+  document.getElementById("c_sales").textContent = fmt(s.totals.sales);
+  document.getElementById("c_qty").textContent = fmt(s.totals.qty);
+  document.getElementById("c_revenue").textContent = fmt(s.totals.revenue);
+  document.getElementById("c_ball").textContent = fmt(s.totals.ball);
+
+  if (chDay) chDay.destroy();
+  chDay = new Chart(document.getElementById("chDay"), {
+    type: "line",
+    data: { labels: s.by_day.map(d => d.day),
+      datasets: [
+        {label:"Упаковка", data:s.by_day.map(d=>d.qty), borderColor:"#4a6fa5", backgroundColor:"rgba(74,111,165,.12)", fill:true, tension:.25},
+        {label:"Тушум", data:s.by_day.map(d=>d.revenue), borderColor:"#1e8e4e", yAxisID:"y1", tension:.25},
+      ]},
+    options: { maintainAspectRatio:false,
+      scales:{ y:{beginAtZero:true}, y1:{position:"right", beginAtZero:true, grid:{drawOnChartArea:false}} } }
+  });
+
+  if (chRegion) chRegion.destroy();
+  chRegion = new Chart(document.getElementById("chRegion"), {
+    type: "bar",
+    data: { labels: s.by_region.map(r => r.name),
+      datasets: [{label:"Упаковка", data:s.by_region.map(r=>r.qty), backgroundColor:"#4a6fa5"}]},
+    options: { maintainAspectRatio:false, scales:{ y:{beginAtZero:true} } }
+  });
+
+  fillTable("#tRep", s.by_rep, r =>
+    `<td>${r.name}</td><td>${r.region||"—"}</td><td class="num">${fmt(r.sales)}</td>`+
+    `<td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.revenue)}</td><td class="num">${fmt(r.ball)}</td>`);
+  fillTable("#tDrug", s.by_drug, r =>
+    `<td>${r.name}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.revenue)}</td><td class="num">${fmt(r.ball)}</td>`);
+}
+
+async function loadBall(){
+  const b = await getJSON("/api/ball?" + params());
+  fillTable("#tBallUsers", b.balances.users, u =>
+    `<td>${u.name}</td><td>${u.role}</td><td>${u.region||"—"}</td>`+
+    `<td class="num ${u.balance<0?"neg":"pos"}">${fmt(u.balance)}</td>`);
+  fillTable("#tBallDocs", b.balances.doctors, d =>
+    `<td>${d.name}</td><td>${d.region||"—"}</td><td class="num ${d.balance<0?"neg":"pos"}">${fmt(d.balance)}</td>`);
+  document.getElementById("ballTurnover").textContent =
+    ` — эмиссия: ${fmt(b.turnover.minted)} | ўтказма: ${fmt(b.turnover.transferred)} | айирилган: ${fmt(b.turnover.deducted)}`;
+  fillTable("#tBallTx", b.transactions, tx =>
+    `<td>${tx.date}</td><td>${KIND[tx.kind]||tx.kind}</td><td>${tx.from||"—"}</td><td>${tx.to||"—"}</td>`+
+    `<td class="num">${fmt(tx.amount)}</td><td>${STATUS[tx.status]||tx.status}</td>`);
+}
+
+async function refresh(){
+  try { await Promise.all([loadSummary(), loadBall()]); }
+  catch (e) { showError(e.message); }
+}
+
+document.getElementById("period").addEventListener("change", ev =>
+  document.getElementById("customDates").classList.toggle("show", ev.target.value === "custom"));
+document.getElementById("apply").addEventListener("click", refresh);
+
+(async () => {
+  try { await loadMeta(); await refresh(); }
+  catch (e) { showError(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -17,6 +17,9 @@ services:
     build: .
     env_file:
       - .env
+    ports:
+      # Analitika web-paneli (owner/TOP/product menejer)
+      - "${WEBAPP_PORT:-8080}:${WEBAPP_PORT:-8080}"
     depends_on:
       postgres:
         condition: service_healthy
