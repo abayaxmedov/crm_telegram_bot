@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+"""Складга заявка — faqat REGIONAL_MANAGER va MANAGER (medvakil).
+
+Bo'lim tanlangach ikki usul chiqadi: (1) ИНН orqali topish, (2) aptekalar ro'yxati.
+Aptekalar faqat sotuvchining regioni bo'yicha ko'rinadi (soxta callback'ларга qarshi
+tanlangan apteka region + APPROVED bo'yicha qayta tekshiriladi)."""
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Pharmacy, Role
+from app.db.models import ApprovalStatus, Pharmacy, Role, User
 from app.db.repositories import (
     create_warehouse_request,
     get_contract,
@@ -14,20 +20,34 @@ from app.db.repositories import (
     get_pharmacy,
     list_active_drugs,
     list_contracts_for_pharmacy,
+    list_pharmacies_visible,
     request_contract,
-    search_pharmacies,
+    search_pharmacies_visible,
 )
 from app.handlers.filters import RoleFilter
-from app.handlers.utils import require_callback_user, require_user
+from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import contracts_inline, entities_inline, main_menu, wh_cart_keyboard
+from app.keyboards.reply import (
+    contracts_inline,
+    entities_inline,
+    inline_id_grid,
+    main_menu,
+    wh_cart_keyboard,
+    wh_method_keyboard,
+)
 from app.services.media import answer_media
 
+router = Router(name="warehouse")
 
-WAREHOUSE_ROLES = {Role.MANAGER, Role.OWNER}
+WAREHOUSE_ROLES = {Role.MANAGER, Role.REGIONAL_MANAGER}
 
 
-async def _require_wh_user(callback, session, lang):
+class WarehouseFlow(StatesGroup):
+    inn = State()
+    qty = State()
+
+
+async def _require_wh_user(callback: CallbackQuery, session: AsyncSession, lang: str) -> User | None:
     """Callback bosqichlari uchun rol tekshiruvi (soxta callback'larga qarshi)."""
     user = await require_callback_user(callback, session)
     if user is None:
@@ -37,12 +57,14 @@ async def _require_wh_user(callback, session, lang):
         return None
     return user
 
-router = Router(name="warehouse")
 
-
-class WarehouseFlow(StatesGroup):
-    search = State()
-    qty = State()
+def _pharmacy_in_scope(user: User, pharmacy: Pharmacy | None) -> bool:
+    """Tanlangan apteka APPROVED va sotuvchining regionida bo'lishi shart."""
+    if pharmacy is None or pharmacy.approval_status != ApprovalStatus.APPROVED:
+        return False
+    if user.role == Role.OWNER:
+        return True
+    return pharmacy.region_id == user.region_id
 
 
 def _ph_label(pharmacy: Pharmacy) -> str:
@@ -61,6 +83,11 @@ def _cart_text(lang: str, cart: list[dict]) -> str:
     return t(lang, "wh_cart_title") + "\n" + "\n".join(lines)
 
 
+def _pharmacy_list_text(lang: str, pharmacies: list[Pharmacy]) -> str:
+    lines = [f"#{p.id} | {safe(_ph_label(p))} | ИНН {safe(p.inn)}" for p in pharmacies]
+    return t(lang, "wh_list_header") + "\n\n" + "\n".join(lines)
+
+
 async def _send_drug_choice(message: Message, session: AsyncSession, lang: str) -> None:
     drugs = await list_active_drugs(session)
     if not drugs:
@@ -70,40 +97,79 @@ async def _send_drug_choice(message: Message, session: AsyncSession, lang: str) 
     await message.answer(t(lang, "wh_choose_drug"), reply_markup=entities_inline(items, "wh_drug"))
 
 
-@router.message(F.text.in_(variants("btn_warehouse")), RoleFilter(Role.MANAGER))
+# ==================== Kirish: usul tanlash ====================
+
+
+@router.message(F.text.in_(variants("btn_warehouse")), RoleFilter(Role.MANAGER, Role.REGIONAL_MANAGER))
 async def wh_start(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if await require_user(message, session) is None:
         return
     await state.clear()
-    await state.set_state(WarehouseFlow.search)
-    await message.answer(t(lang, "wh_search_pharmacy"))
+    await message.answer(t(lang, "wh_choose_method"), reply_markup=wh_method_keyboard(lang))
 
 
-@router.message(WarehouseFlow.search)
-async def wh_search(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+@router.callback_query(F.data == "wh_method:inn")
+async def wh_method_inn(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    if await _require_wh_user(callback, session, lang) is None:
+        return
+    await state.set_state(WarehouseFlow.inn)
+    await callback.message.answer(t(lang, "wh_enter_inn"))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "wh_method:list")
+async def wh_method_list(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await _require_wh_user(callback, session, lang)
+    if user is None:
+        return
+    await state.clear()
+    pharmacies = await list_pharmacies_visible(session, user)
+    if not pharmacies:
+        await callback.message.answer(t(lang, "wh_list_empty"))
+        await callback.answer()
+        return
+    await callback.message.answer(
+        _pharmacy_list_text(lang, pharmacies),
+        reply_markup=inline_id_grid([p.id for p in pharmacies], "wh_ph"),
+    )
+    await callback.answer()
+
+
+@router.message(WarehouseFlow.inn)
+async def wh_search_inn(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None or user.role not in WAREHOUSE_ROLES:
         await state.clear()
         return
     query = (message.text or "").strip()
-    pharmacies = await search_pharmacies(session, query)
+    if not query:
+        await message.answer(t(lang, "wh_enter_inn"))
+        return
+    pharmacies = await search_pharmacies_visible(session, user, query)
     if not pharmacies:
         await message.answer(t(lang, "wh_not_found"))
         return
-    await state.set_state(None)
+    await state.clear()
     await message.answer(
-        t(lang, "sales_choose_pharmacy"),
-        reply_markup=entities_inline([(p.id, _ph_label(p)) for p in pharmacies], "wh_ph"),
+        _pharmacy_list_text(lang, pharmacies),
+        reply_markup=inline_id_grid([p.id for p in pharmacies], "wh_ph"),
     )
+
+
+# ==================== Apteka tanlangach: shartnoma -> savat ====================
 
 
 @router.callback_query(F.data.startswith("wh_ph:"))
 async def wh_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    if await _require_wh_user(callback, session, lang) is None:
+    user = await _require_wh_user(callback, session, lang)
+    if user is None:
         return
-    pharmacy_id = int(callback.data.split(":", 1)[1])
-    await state.update_data(pharmacy_id=pharmacy_id, cart=[])
-    contracts = await list_contracts_for_pharmacy(session, pharmacy_id)
+    pharmacy = await get_pharmacy(session, int(callback.data.split(":", 1)[1]))
+    if not _pharmacy_in_scope(user, pharmacy):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await state.update_data(pharmacy_id=pharmacy.id, cart=[])
+    contracts = await list_contracts_for_pharmacy(session, pharmacy.id)
     await callback.message.answer(
         t(lang, "wh_choose_contract"),
         reply_markup=contracts_inline([(c.id, _contract_label(c, lang)) for c in contracts], lang),
@@ -118,9 +184,11 @@ async def wh_request_contract(callback: CallbackQuery, session: AsyncSession, st
         return
     data = await state.get_data()
     pharmacy = await get_pharmacy(session, data.get("pharmacy_id")) if data.get("pharmacy_id") else None
-    if pharmacy is not None:
-        await request_contract(session, pharmacy=pharmacy, rep=rep)
-        await session.commit()
+    if not _pharmacy_in_scope(rep, pharmacy):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await request_contract(session, pharmacy=pharmacy, rep=rep)
+    await session.commit()
     await state.clear()
     await callback.message.answer(t(lang, "wh_contract_requested"))
     await callback.answer()
@@ -134,6 +202,10 @@ async def wh_request_contract(callback: CallbackQuery, session: AsyncSession, st
 async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if await _require_wh_user(callback, session, lang) is None:
         return
+    data = await state.get_data()
+    if not data.get("pharmacy_id"):
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
+        return
     await state.update_data(contract_id=int(callback.data.split(":", 1)[1]), cart=[])
     await _send_drug_choice(callback.message, session, lang)
     await callback.answer()
@@ -142,6 +214,10 @@ async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state
 @router.callback_query(F.data.startswith("wh_drug:"))
 async def wh_pick_drug(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     if await _require_wh_user(callback, session, lang) is None:
+        return
+    data = await state.get_data()
+    if not data.get("pharmacy_id"):
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
         return
     drug = await get_drug(session, int(callback.data.split(":", 1)[1]))
     if drug is None:
@@ -189,12 +265,17 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
     if rep is None:
         return
     data = await state.get_data()
+    # Double-tap himoyasi: state'ni yaratishdan oldin tozalaymiz.
+    await state.clear()
     cart = data.get("cart", [])
-    if not cart:
+    if not cart or not data.get("pharmacy_id"):
         await callback.answer(t(lang, "cart_empty"), show_alert=True)
         return
 
-    pharmacy = await get_pharmacy(session, data["pharmacy_id"]) if data.get("pharmacy_id") else None
+    pharmacy = await get_pharmacy(session, data["pharmacy_id"])
+    if not _pharmacy_in_scope(rep, pharmacy):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
     contract = await get_contract(session, data["contract_id"]) if data.get("contract_id") else None
 
     items = []
@@ -205,7 +286,6 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
 
     request = await create_warehouse_request(session, rep=rep, pharmacy=pharmacy, contract=contract, items=items)
     await session.commit()
-    await state.clear()
 
     detail = "\n".join(f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}." for i, c in enumerate(cart, 1))
     await callback.message.answer(

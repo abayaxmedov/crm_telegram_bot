@@ -468,6 +468,30 @@ async def search_pharmacies(session: AsyncSession, query: str, limit: int = 10) 
     return list(result.scalars())
 
 
+async def search_pharmacies_visible(
+    session: AsyncSession, actor: User, query: str, limit: int = 20
+) -> list[Pharmacy]:
+    """INN (yoki nom) bo'yicha qidiruv — ko'rish ko'lami (region) bilan cheklangan.
+
+    regional/medvakil => faqat o'z regioni; owner/top/product/operator => hammasi."""
+    like = f"%{query.strip()}%"
+    q = (
+        select(Pharmacy)
+        .options(selectinload(Pharmacy.region), selectinload(Pharmacy.manager))
+        .where(
+            Pharmacy.approval_status == ApprovalStatus.APPROVED,
+            or_(Pharmacy.inn.ilike(like), Pharmacy.name.ilike(like)),
+        )
+        .order_by(desc(Pharmacy.created_at))
+        .limit(limit)
+    )
+    if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+        q = q.where(Pharmacy.region_id == actor.region_id)
+    elif actor.role not in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.OPERATOR}:
+        return []
+    return list((await session.execute(q)).scalars())
+
+
 async def get_doctor(session: AsyncSession, doctor_id: int) -> Doctor | None:
     return (await session.execute(select(Doctor).where(Doctor.id == doctor_id))).scalar_one_or_none()
 

@@ -61,12 +61,12 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [webapp, language],
         ]
     elif role == Role.REGIONAL_MANAGER:
-        # Regional menejer: o'z regioni + sotuv kiritish + ball.
+        # Regional menejer: o'z regioni + sotuv/sklad + ball.
         rows = [
             [doctors, pharmacies],
-            [t(lang, "btn_sales"), ball],
-            [reports, materials],
-            [language],
+            [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
+            [ball, reports],
+            [materials, language],
         ]
     elif role == Role.MANAGER:
         # Медвакил: moliya o'rniga BALL bo'limi.
@@ -337,6 +337,23 @@ def wh_cart_keyboard(lang: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=t(lang, "btn_cart_finish"), callback_data="wh_cart:finish")],
         ]
     )
+
+
+def wh_method_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Sklad zayavka: aptekani topish usuli — INN orqali yoki ro'yxatdan."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_wh_by_inn"), callback_data="wh_method:inn")],
+            [InlineKeyboardButton(text=t(lang, "btn_wh_by_list"), callback_data="wh_method:list")],
+        ]
+    )
+
+
+def inline_id_grid(ids: list[int], prefix: str, per_row: int = 5) -> InlineKeyboardMarkup:
+    """ID raqamli ixcham inline tugmalar to'ri (aptekalar ro'yxati tanlovi uchun)."""
+    buttons = [InlineKeyboardButton(text=str(i), callback_data=f"{prefix}:{i}") for i in ids]
+    rows = [buttons[k : k + per_row] for k in range(0, len(buttons), per_row)]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def entities_inline(items: list[tuple[int, str]], prefix: str) -> InlineKeyboardMarkup:
