@@ -17,6 +17,12 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      # Web panel havolasi asosi. .env da bo'lsa o'sha, aks holda server IP.
+      # (.env git'ga chiqmaydi, shuning uchun default shu yerda turadi.)
+      WEBAPP_BASE_URL: ${WEBAPP_BASE_URL:-http://52.55.79.225:8080}
+      WEBAPP_HOST: ${WEBAPP_HOST:-0.0.0.0}
+      WEBAPP_PORT: ${WEBAPP_PORT:-8080}
     ports:
       # Analitika web-paneli (owner/TOP/product menejer)
       - "${WEBAPP_PORT:-8080}:${WEBAPP_PORT:-8080}"

@@ -217,6 +217,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Database backuplar
-backups/
-*.sql
+# Database backuplar — seed/dump fayllari serverga git orqali boradi.
+# Faqat log fayllar ignored (yuqorida *.log bor).
+backups/*.log
