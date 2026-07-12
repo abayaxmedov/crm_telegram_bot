@@ -44,7 +44,6 @@ _PERIOD_LABEL = {"5d": "period_5d", "10d": "period_10d", "30d": "period_30d", "a
 
 
 class DailyReportFlow(StatesGroup):
-    target_name = State()
     body = State()
 
 
@@ -83,17 +82,11 @@ async def report_target(callback: CallbackQuery, session: AsyncSession, state: F
         return
 
     target_type = callback.data.split(":", 1)[1] if callback.data else "general"
-    await state.update_data(target_type=target_type)
-    await state.set_state(DailyReportFlow.target_name)
-    await callback.message.answer(t(lang, "report_target_name_q"))
-    await callback.answer()
-
-
-@router.message(DailyReportFlow.target_name)
-async def report_target_name(message: Message, state: FSMContext, lang: str) -> None:
-    await state.update_data(target_name=clean_optional(message.text))
+    # Nom bosqichi yo'q — target tanlangach to'g'ridan matn yoki ovoz so'raladi.
+    await state.update_data(target_type=target_type, target_name=None)
     await state.set_state(DailyReportFlow.body)
-    await message.answer(t(lang, "report_body_q"))
+    await callback.message.answer(t(lang, "report_body_q"))
+    await callback.answer()
 
 
 @router.message(DailyReportFlow.body, F.voice)
