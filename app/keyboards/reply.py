@@ -46,20 +46,22 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [language],
         ]
     elif role == Role.TOP_MANAGER:
-        # TOP menejer: faqat hisobotlar (barcha turdagi) + ball + web panel.
+        # TOP menejer: hisobotlar + kundalik (yozish/ko'rish) + ball + web panel.
         rows = [
-            [reports, finance],
+            [reports, daily],
             [doctors, pharmacies],
-            [ball, webapp],
-            [materials, language],
+            [finance, ball],
+            [materials, webapp],
+            [language],
         ]
     elif role == Role.PRODUCT_MANAGER:
-        # Product menejer: dori materiallarini yuklaydi + barcha hisobotlar.
+        # Product menejer: materiallar + hisobotlar + kundalik.
         rows = [
             [material_upload, materials],
-            [reports, finance],
+            [reports, daily],
             [doctors, pharmacies],
-            [webapp, language],
+            [finance, webapp],
+            [language],
         ]
     elif role == Role.REGIONAL_MANAGER:
         # Regional menejer: o'z regioni + sotuv/sklad + ball.
@@ -186,6 +188,27 @@ def ball_accept_keyboard(lang: str, tx_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=t(lang, "btn_ball_accept"), callback_data=f"ball_acc:{tx_id}"),
                 InlineKeyboardButton(text=t(lang, "btn_ball_reject"), callback_data=f"ball_rej:{tx_id}"),
             ]
+        ]
+    )
+
+
+def report_role_keyboard(roles, lang: str) -> InlineKeyboardMarkup:
+    """Owner hisobot drill-down: rol tanlash (rep_role:{role})."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=role_label(lang, r), callback_data=f"rep_role:{r.value}")] for r in roles
+        ]
+    )
+
+
+def report_period_keyboard(lang: str, emp_id: int) -> InlineKeyboardMarkup:
+    """Xodim tanlangach davr (5/10/30 kun, hammasi) — rep_per:{emp_id}:{period}."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_period_5d"), callback_data=f"rep_per:{emp_id}:5d")],
+            [InlineKeyboardButton(text=t(lang, "btn_period_10d"), callback_data=f"rep_per:{emp_id}:10d")],
+            [InlineKeyboardButton(text=t(lang, "btn_period_30d"), callback_data=f"rep_per:{emp_id}:30d")],
+            [InlineKeyboardButton(text=t(lang, "btn_period_all"), callback_data=f"rep_per:{emp_id}:all")],
         ]
     )
 

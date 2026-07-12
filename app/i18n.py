@@ -942,6 +942,55 @@ STRINGS: dict[str, dict[str, str]] = {
         RU: "✅ Аптека <b>{name}</b> подтверждена.\n📄 Договор №{number} сохранён.",
     },
 
+    # ================= Owner hisobot drill-down =================
+    "reports_choose_role": {
+        UZ_CYRL: "📋 Кимнинг ҳисоботларини кўрмоқчисиз? Ролни танланг:",
+        RU: "📋 Чьи отчёты хотите посмотреть? Выберите роль:",
+    },
+    "reports_choose_region": {
+        UZ_CYRL: "🗺 Қайси регион ходимлари? Регионни танланг:",
+        RU: "🗺 Сотрудники какого региона? Выберите регион:",
+    },
+    "reports_no_regions": {UZ_CYRL: "Регионлар йўқ.", RU: "Нет регионов."},
+    "reports_no_employees": {
+        UZ_CYRL: "Бу бўйича ходимлар топилмади.",
+        RU: "Сотрудники по этому фильтру не найдены.",
+    },
+    "reports_emp_header": {
+        UZ_CYRL: "👥 Ходимлар. Ҳисоботини кўриш учун ID тугмасини танланг:",
+        RU: "👥 Сотрудники. Нажмите ID для просмотра отчётов:",
+    },
+    "reports_emp_row": {UZ_CYRL: "#{id} | {name}", RU: "#{id} | {name}"},
+    "reports_choose_period": {
+        UZ_CYRL: "🧑 {name}\nДаврни танланг:",
+        RU: "🧑 {name}\nВыберите период:",
+    },
+    "btn_period_5d": {UZ_CYRL: "📅 5 кунлик", RU: "📅 5 дней"},
+    "btn_period_10d": {UZ_CYRL: "📅 10 кунлик", RU: "📅 10 дней"},
+    "btn_period_30d": {UZ_CYRL: "📅 1 ойлик", RU: "📅 1 месяц"},
+    "btn_period_all": {UZ_CYRL: "📅 Ҳаммаси", RU: "📅 Всё"},
+    "period_5d": {UZ_CYRL: "5 кунлик", RU: "5 дней"},
+    "reports_author_header": {
+        UZ_CYRL: "🧑 {name} — ҳисоботлар ({period}), жами: {count}",
+        RU: "🧑 {name} — отчёты ({period}), всего: {count}",
+    },
+    "reports_author_empty": {
+        UZ_CYRL: "🧑 {name} — бу давр учун ҳисоботлар йўқ ({period}).",
+        RU: "🧑 {name} — нет отчётов за этот период ({period}).",
+    },
+    "report_row_text": {
+        UZ_CYRL: "📝 {date} | {target} | {text}",
+        RU: "📝 {date} | {target} | {text}",
+    },
+    "report_voice_cap": {
+        UZ_CYRL: "🎤 {date} | {target}{text}",
+        RU: "🎤 {date} | {target}{text}",
+    },
+    "reports_no_perm_drill": {
+        UZ_CYRL: "Бу ҳисоботларни кўриш ҳуқуқингиз йўқ.",
+        RU: "У вас нет прав для просмотра этих отчётов.",
+    },
+
     # ================= FSM oqim boshqaruvi =================
     "flow_cancelled": {
         UZ_CYRL: "❕ Жорий амал бекор қилинди.",

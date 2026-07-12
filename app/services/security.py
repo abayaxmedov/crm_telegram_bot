@@ -69,6 +69,25 @@ def can_view_hierarchy_reports(role: Role) -> bool:
     return role in REPORT_VIEWER_ROLES
 
 
+def reports_viewer_roles(role: Role) -> list[Role]:
+    """Owner kundalik-hisobot drill-down: actor qaysi roldagi xodimlar
+    hisobotini ko'ra oladi.
+
+    owner => TOP/product/regional/medvakil; TOP/product => regional/medvakil;
+    regional => faqat medvakil (o'z regioni). Boshqalar => hech kim."""
+    if role == Role.OWNER:
+        return [Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.REGIONAL_MANAGER, Role.MANAGER]
+    if role in {Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
+        return [Role.REGIONAL_MANAGER, Role.MANAGER]
+    if role == Role.REGIONAL_MANAGER:
+        return [Role.MANAGER]
+    return []
+
+
+# Kundalik hisobot drill-down'da tanlangan rol region bo'yicha tanlanadimi.
+REGION_SCOPED_REPORT_ROLES: frozenset[Role] = frozenset({Role.REGIONAL_MANAGER, Role.MANAGER})
+
+
 def can_view_finance_report(role: Role) -> bool:
     """Moliya HISOBOTINI ko'rish: owner + TOP + product menejer."""
     return role in ALL_REPORT_ROLES

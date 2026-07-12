@@ -44,8 +44,10 @@ from app.db.models import (
 
 
 def period_window(kind: str) -> tuple[datetime | None, datetime]:
-    """Hisobot davri: '10d' (10 kun), '30d' (1 oy), 'all' (to'liq). Aware UTC."""
+    """Hisobot davri: '5d', '10d', '30d' (1 oy), 'all' (to'liq). Aware UTC."""
     now = datetime.now(timezone.utc)
+    if kind == "5d":
+        return now - timedelta(days=5), now
     if kind == "10d":
         return now - timedelta(days=10), now
     if kind == "30d":
@@ -1340,6 +1342,52 @@ async def due_deletions(session: AsyncSession, now: datetime, limit: int = 50) -
         select(ScheduledDeletion).where(ScheduledDeletion.delete_at <= now).order_by(ScheduledDeletion.delete_at).limit(limit)
     )
     return list(result.scalars())
+
+
+# ==================== Owner hisobot drill-down ====================
+
+
+async def list_report_authors(
+    session: AsyncSession, *, role: Role, region_id: int | None = None, limit: int = 300
+) -> list[User]:
+    """Berilgan roldagi (ixtiyoriy region bilan) faol xodimlar — hisobot mualliflari."""
+    query = (
+        select(User)
+        .options(selectinload(User.region))
+        .where(User.role == role, User.is_active.is_(True))
+        .order_by(User.full_name)
+        .limit(limit)
+    )
+    if region_id is not None:
+        query = query.where(User.region_id == region_id)
+    return list((await session.execute(query)).scalars())
+
+
+async def get_active_user(session: AsyncSession, user_id: int) -> User | None:
+    result = await session.execute(
+        select(User).options(selectinload(User.region)).where(User.id == user_id, User.is_active.is_(True))
+    )
+    return result.scalar_one_or_none()
+
+
+async def reports_by_author(
+    session: AsyncSession,
+    author_id: int,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    limit: int = 100,
+) -> list[DailyReport]:
+    query = (
+        select(DailyReport)
+        .where(DailyReport.author_id == author_id)
+        .order_by(desc(DailyReport.created_at))
+        .limit(limit)
+    )
+    if start is not None:
+        query = query.where(DailyReport.created_at >= start)
+    if end is not None:
+        query = query.where(DailyReport.created_at <= end)
+    return list((await session.execute(query)).scalars())
 
 
 # ==================== Dori materiallari (TOP menejer yuklaydi) ====================
