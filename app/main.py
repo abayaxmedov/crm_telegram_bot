@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web as aioweb
 
@@ -18,6 +19,22 @@ from app.middlewares.language import LanguageMiddleware
 from app.services.notify import deletion_sweeper
 from app.services.profile import setup_bot_profile
 from app.webapp.server import create_webapp
+
+
+def _build_storage() -> BaseStorage:
+    """Redis mavjud bo'lsa FSM holatini unda saqlaymiz (bot restart/deploy'dan omon
+    qoladi). Aks holda MemoryStorage — restart'da holat yo'qoladi."""
+    if settings.redis_url:
+        try:
+            from aiogram.fsm.storage.redis import RedisStorage
+
+            storage = RedisStorage.from_url(settings.redis_url)
+            logging.info("FSM storage: Redis (%s)", settings.redis_url)
+            return storage
+        except Exception:
+            logging.exception("Redis storage ulanmadi — MemoryStorage'ga o'tildi")
+    logging.warning("FSM storage: MemoryStorage (restart'da holat yo'qoladi)")
+    return MemoryStorage()
 
 
 async def main() -> None:
@@ -35,7 +52,7 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=_build_storage())
     dp.update.middleware(DbSessionMiddleware())
     # OUTER middleware: filtrlardan (RoleFilter) oldin ishlashi uchun, shunda
     # db_user/lang filtrlar uchun ham mavjud bo'ladi.

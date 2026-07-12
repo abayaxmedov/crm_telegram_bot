@@ -13,6 +13,18 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   bot:
     build: .
     env_file:
@@ -23,14 +35,19 @@ services:
       WEBAPP_BASE_URL: ${WEBAPP_BASE_URL:-http://52.55.79.225:8080}
       WEBAPP_HOST: ${WEBAPP_HOST:-0.0.0.0}
       WEBAPP_PORT: ${WEBAPP_PORT:-8080}
+      # FSM holati Redis'da — bot restart/deploy'dan omon qoladi.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     ports:
       # Analitika web-paneli (owner/TOP/product menejer)
       - "${WEBAPP_PORT:-8080}:${WEBAPP_PORT:-8080}"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
 

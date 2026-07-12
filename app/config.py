@@ -50,6 +50,9 @@ class Settings:
     webapp_base_url: str = "http://localhost:8080"
     # Kelajakda HTTPS domen olinganda: Telegram ichidagi WebApp tugmasi uchun URL.
     webapp_telegram_url: str | None = None
+    # FSM holati saqlanadigan Redis (bot restart/deploy'dan omon qoladi).
+    # Bo'sh bo'lsa MemoryStorage ishlatiladi (restart'da holat yo'qoladi).
+    redis_url: str | None = None
 
     def validate(self) -> None:
         if not self.bot_token:
@@ -75,5 +78,6 @@ settings = Settings(
     webapp_port=int(os.getenv("WEBAPP_PORT", "8080").strip() or "8080"),
     webapp_base_url=os.getenv("WEBAPP_BASE_URL", "").strip() or f"http://localhost:{os.getenv('WEBAPP_PORT', '8080').strip() or '8080'}",
     webapp_telegram_url=os.getenv("WEBAPP_TELEGRAM_URL", "").strip() or None,
+    redis_url=os.getenv("REDIS_URL", "").strip() or None,
 )
 
