@@ -50,6 +50,21 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     add("sales", "total_ball", "total_ball INTEGER DEFAULT 0")
     add("contracts", "file_id", "file_id VARCHAR(255)")
 
+    # Enum ustunlari string sifatida saqlanadi (native_enum=False). Yangi enum
+    # qiymatlari (masalan "regional_manager" = 16 belgi) eski, tor VARCHAR ustunlarga
+    # sig'masligi mumkin — create_all mavjud ustun tipini o'zgartirmaydi. Postgres'da
+    # kengaytiramiz (SQLite VARCHAR uzunligini majburlamaydi, shuning uchun skip).
+    if sync_conn.dialect.name == "postgresql":
+        for table, column in (
+            ("users", "role"),
+            ("doctors", "approval_status"),
+            ("pharmacies", "approval_status"),
+            ("ball_transactions", "kind"),
+            ("ball_transactions", "status"),
+        ):
+            if column in cols(table):
+                sync_conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR(32)"))
+
 
 async def init_db() -> None:
     async with engine.begin() as conn:
