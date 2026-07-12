@@ -299,6 +299,16 @@ def rep_finance_menu(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
+def location_request_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    """Apteka yaratishda: joylashuvni ulashish tugmasi (matn ham kiritish mumkin)."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=t(lang, "btn_send_geo"), request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        input_field_placeholder=t(lang, "enter_location"),
+    )
+
+
 def geo_request_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[

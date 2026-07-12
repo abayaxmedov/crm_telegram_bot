@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus
@@ -19,7 +20,7 @@ from app.db.repositories import (
 )
 from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import doctors_menu, entities_inline, pharmacies_menu
+from app.keyboards.reply import doctors_menu, entities_inline, location_request_keyboard, pharmacies_menu
 from app.services.excel import build_xlsx
 from app.services.media import answer_media
 from app.services.security import (
@@ -266,14 +267,25 @@ async def pharmacy_name(message: Message, state: FSMContext, lang: str) -> None:
 async def pharmacy_phone(message: Message, state: FSMContext, lang: str) -> None:
     await state.update_data(phone=clean_optional(message.text))
     await state.set_state(PharmacyFlow.location)
-    await message.answer(t(lang, "enter_location"))
+    # Joylashuvni ulashish tugmasi bilan (matn ham kiritish mumkin).
+    await message.answer(t(lang, "enter_location_geo"), reply_markup=location_request_keyboard(lang))
+
+
+@router.message(PharmacyFlow.location, F.location)
+async def pharmacy_location_geo(message: Message, state: FSMContext, lang: str) -> None:
+    loc = message.location
+    await state.update_data(
+        location=None, lat=str(loc.latitude), lng=str(loc.longitude)
+    )
+    await state.set_state(PharmacyFlow.responsible)
+    await message.answer(t(lang, "enter_responsible"), reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(PharmacyFlow.location)
 async def pharmacy_location(message: Message, state: FSMContext, lang: str) -> None:
-    await state.update_data(location=clean_optional(message.text))
+    await state.update_data(location=clean_optional(message.text), lat=None, lng=None)
     await state.set_state(PharmacyFlow.responsible)
-    await message.answer(t(lang, "enter_responsible"))
+    await message.answer(t(lang, "enter_responsible"), reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(PharmacyFlow.responsible)
@@ -332,6 +344,8 @@ async def pharmacy_finish(callback: CallbackQuery, session: AsyncSession, state:
         filial=data.get("filial"),
         region_id=region_id,
         approval_status=status,
+        latitude=Decimal(data["lat"]) if data.get("lat") else None,
+        longitude=Decimal(data["lng"]) if data.get("lng") else None,
     )
     await session.commit()
     await state.clear()

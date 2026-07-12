@@ -215,11 +215,15 @@ async def add_pharmacy(
     filial: str | None = None,
     region_id: int | None = None,
     approval_status: ApprovalStatus = ApprovalStatus.PENDING,
+    latitude: Decimal | None = None,
+    longitude: Decimal | None = None,
 ) -> Pharmacy:
     pharmacy = Pharmacy(
         name=name,
         phone_number=phone_number,
         location_text=location_text,
+        latitude=latitude,
+        longitude=longitude,
         responsible_person=responsible_person,
         manager_id=manager.id,
         notes=notes,
