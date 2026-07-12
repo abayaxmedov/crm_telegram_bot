@@ -33,11 +33,12 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     webapp = t(lang, "btn_webapp")
 
     if role == Role.OWNER:
-        # Owner — cheklovsiz: barcha bo'limlar ochiq.
+        # Owner — cheklovsiz: barcha bo'limlar ochiq (jumladan tasdiqlash).
         rows = [
             [admin, regions],
             [doctors, pharmacies],
             [drugs, ball],
+            [t(lang, "btn_entity_approve"), t(lang, "btn_wh_approve")],
             [daily, requests],
             [finance, salary],
             [reports, materials],

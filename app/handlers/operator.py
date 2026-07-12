@@ -63,7 +63,7 @@ def _approve_kb(lang: str, request_id: int) -> InlineKeyboardMarkup:
     )
 
 
-@router.message(F.text.in_(variants("btn_wh_approve")), RoleFilter(Role.OPERATOR))
+@router.message(F.text.in_(variants("btn_wh_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
 async def wh_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
@@ -144,7 +144,7 @@ def _pharmacy_card(lang: str, pharmacy) -> str:
     )
 
 
-@router.message(F.text.in_(variants("btn_entity_approve")), RoleFilter(Role.OPERATOR))
+@router.message(F.text.in_(variants("btn_entity_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
 async def entity_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
