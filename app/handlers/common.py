@@ -28,8 +28,21 @@ class PhoneNumberFlow(StatesGroup):
     phone_number = State()
 
 
-def _welcome_with_role(lang: str, role: Role) -> str:
-    return f"{t(lang, 'welcome_text')}\n\n<b>{t(lang, 'your_role')}:</b> {role_label(lang, role)}"
+def _region_line(lang: str, user: User) -> str:
+    """Regional menejer / medvakil uchun region qatori (aks holda bo'sh)."""
+    if user.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+        region = user.region.name if user.region else t(lang, "region_unset")
+        return f"\n<b>{t(lang, 'your_region')}:</b> {escape(region)}"
+    return ""
+
+
+def _welcome_with_role(lang: str, user: User) -> str:
+    return (
+        f"{t(lang, 'greeting_hello')}, <b>{escape(user.full_name)}</b>!\n\n"
+        f"{t(lang, 'welcome_text')}\n\n"
+        f"<b>{t(lang, 'your_role')}:</b> {role_label(lang, user.role)}"
+        f"{_region_line(lang, user)}"
+    )
 
 
 async def _show_language_picker(message: Message) -> None:
@@ -56,7 +69,7 @@ async def cmd_start(
             await answer_media(
                 message,
                 screen="welcome",
-                text=f"{_welcome_with_role(lang, current_user.role)}\n\n{t(lang, 'continue_send_phone')}",
+                text=f"{_welcome_with_role(lang, current_user)}\n\n{t(lang, 'continue_send_phone')}",
                 lang=lang,
                 reply_markup=phone_number_keyboard(lang),
             )
@@ -65,7 +78,7 @@ async def cmd_start(
         await answer_media(
             message,
             screen="welcome",
-            text=_welcome_with_role(lang, current_user.role),
+            text=_welcome_with_role(lang, current_user),
             lang=lang,
             reply_markup=main_menu(current_user.role, lang),
         )
@@ -128,7 +141,7 @@ async def set_language(callback: CallbackQuery, session: AsyncSession, state: FS
         await answer_media(
             callback.message,
             screen="welcome",
-            text=f"{_welcome_with_role(lang, user.role)}\n\n{t(lang, 'continue_send_phone')}",
+            text=f"{_welcome_with_role(lang, user)}\n\n{t(lang, 'continue_send_phone')}",
             lang=lang,
             reply_markup=phone_number_keyboard(lang),
         )
@@ -137,7 +150,7 @@ async def set_language(callback: CallbackQuery, session: AsyncSession, state: FS
     await answer_media(
         callback.message,
         screen="welcome",
-        text=_welcome_with_role(lang, user.role),
+        text=_welcome_with_role(lang, user),
         lang=lang,
         reply_markup=main_menu(user.role, lang),
     )
@@ -274,7 +287,11 @@ async def save_user_phone(
     await session.commit()
     await state.clear()
 
-    text = f"{t(lang, 'phone_saved')}\n\n<b>{t(lang, 'your_role')}:</b> {role_label(lang, user.role)}"
+    text = (
+        f"{t(lang, 'phone_saved')}\n\n"
+        f"<b>{t(lang, 'your_role')}:</b> {role_label(lang, user.role)}"
+        f"{_region_line(lang, user)}"
+    )
     await message.answer(text, reply_markup=ReplyKeyboardRemove())
     await answer_media(
         message, screen="menu", text=t(lang, "menu_text"), lang=lang, reply_markup=main_menu(user.role, lang), sticker=False

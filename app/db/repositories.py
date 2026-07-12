@@ -60,7 +60,9 @@ def make_invite_token() -> str:
 
 
 async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> User | None:
-    result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+    result = await session.execute(
+        select(User).options(selectinload(User.region)).where(User.telegram_id == telegram_id)
+    )
     return result.scalar_one_or_none()
 
 
