@@ -72,11 +72,11 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [materials, language],
         ]
     elif role == Role.MANAGER:
-        # Медвакил: moliya o'rniga BALL bo'limi.
+        # Медвакил: kundalik/tashrif birlashgan (📖 Дневник olib tashlandi).
         rows = [
             [doctors, pharmacies],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
-            [t(lang, "btn_diary"), ball],
+            [ball, daily],
             [salary, materials],
             [reports, language],
         ]
@@ -270,12 +270,25 @@ def role_inline_keyboard(actor_role: Role, lang: str) -> InlineKeyboardMarkup:
 
 
 def report_target_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Hisobot/tashrif: qayerga borgani — doktorga yoki dorixonaga."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "it_report_doctor"), callback_data="report_target:doctor")],
-            [InlineKeyboardButton(text=t(lang, "it_report_pharmacy"), callback_data="report_target:pharmacy")],
-            [InlineKeyboardButton(text=t(lang, "it_report_general"), callback_data="report_target:general")],
+            [InlineKeyboardButton(text=t(lang, "btn_where_doctor"), callback_data="report_where:doctor")],
+            [InlineKeyboardButton(text=t(lang, "btn_where_pharmacy"), callback_data="report_where:pharmacy")],
         ]
+    )
+
+
+def report_geo_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    """Tashrif geolokatsiyasi (ixtiyoriy): yuborish yoki o'tkazib yuborish."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_send_geo"), request_location=True)],
+            [KeyboardButton(text=t(lang, "skip_geo"))],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        input_field_placeholder=t(lang, "btn_send_geo"),
     )
 
 

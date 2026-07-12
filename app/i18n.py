@@ -942,6 +942,39 @@ STRINGS: dict[str, dict[str, str]] = {
         RU: "✅ Аптека <b>{name}</b> подтверждена.\n📄 Договор №{number} сохранён.",
     },
 
+    # ================= Hisobot/tashrif yozish (birlashgan) =================
+    "report_where_q": {
+        UZ_CYRL: "📍 Қаерга бордингиз?",
+        RU: "📍 Куда вы ходили?",
+    },
+    "btn_where_doctor": {UZ_CYRL: "🧑‍⚕️ Докторга", RU: "🧑‍⚕️ К врачу"},
+    "btn_where_pharmacy": {UZ_CYRL: "💊 Дорихонага", RU: "💊 В аптеку"},
+    "report_pick_doctor": {
+        UZ_CYRL: "🧑‍⚕️ Қайси докторга бордингиз? ID тугмасини танланг:",
+        RU: "🧑‍⚕️ К какому врачу? Нажмите ID:",
+    },
+    "report_pick_pharmacy": {
+        UZ_CYRL: "💊 Қайси дорихонага бордингиз? ID тугмасини танланг:",
+        RU: "💊 В какую аптеку? Нажмите ID:",
+    },
+    "report_no_doctors": {
+        UZ_CYRL: "Сизнинг рўйхатингизда доктор йўқ. Аввал доктор қўшинг.",
+        RU: "В вашем списке нет врачей. Сначала добавьте врача.",
+    },
+    "report_no_pharmacies": {
+        UZ_CYRL: "Сизнинг рўйхатингизда дорихона йўқ. Аввал дорихона қўшинг.",
+        RU: "В вашем списке нет аптек. Сначала добавьте аптеку.",
+    },
+    "report_ask_geo": {
+        UZ_CYRL: "📍 Ташриф жойи геолокациясини юборинг (ихтиёрий) ёки ўтказиб юборинг:",
+        RU: "📍 Отправьте геолокацию места визита (необязательно) или пропустите:",
+    },
+    "skip_geo": {UZ_CYRL: "⏭ Ўтказиб юбориш", RU: "⏭ Пропустить"},
+    "report_done": {
+        UZ_CYRL: "✅ Ташриф ҳисоботи сақланди: #{id} ({target})",
+        RU: "✅ Отчёт о визите сохранён: #{id} ({target})",
+    },
+
     # ================= Owner hisobot drill-down =================
     "reports_choose_role": {
         UZ_CYRL: "📋 Кимнинг ҳисоботларини кўрмоқчисиз? Ролни танланг:",
@@ -986,6 +1019,12 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "🎤 {date} | {target}{text}",
         RU: "🎤 {date} | {target}{text}",
     },
+    "report_geo_link": {
+        UZ_CYRL: "📍 <a href=\"{url}\">харитада кўриш</a>",
+        RU: "📍 <a href=\"{url}\">посмотреть на карте</a>",
+    },
+    "report_target_doctor": {UZ_CYRL: "🧑‍⚕️ {name}", RU: "🧑‍⚕️ {name}"},
+    "report_target_pharmacy": {UZ_CYRL: "💊 {name}", RU: "💊 {name}"},
     "reports_no_perm_drill": {
         UZ_CYRL: "Бу ҳисоботларни кўриш ҳуқуқингиз йўқ.",
         RU: "У вас нет прав для просмотра этих отчётов.",

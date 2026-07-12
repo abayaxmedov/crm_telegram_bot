@@ -7,7 +7,6 @@ from app.handlers import (
     ball,
     cancel,
     common,
-    diary,
     directories,
     drugs_admin,
     finance,
@@ -42,7 +41,6 @@ def setup_routers(dp: Dispatcher) -> None:
     # Sotuvchilar (medvakil + regional) — rep routerlar finance/salary/common'dan oldin.
     dp.include_router(sales.router)
     dp.include_router(warehouse.router)
-    dp.include_router(diary.router)
     dp.include_router(rep_finance.router)
     dp.include_router(operator.router)
     dp.include_router(finance.router)

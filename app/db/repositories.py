@@ -259,16 +259,24 @@ async def add_daily_report(
     *,
     author: User,
     target_type: str,
-    target_name: str | None,
-    text: str | None,
-    voice_file_id: str | None,
+    target_name: str | None = None,
+    text: str | None = None,
+    voice_file_id: str | None = None,
+    doctor_id: int | None = None,
+    pharmacy_id: int | None = None,
+    latitude: Decimal | None = None,
+    longitude: Decimal | None = None,
 ) -> DailyReport:
     report = DailyReport(
         author_id=author.id,
         target_type=target_type,
         target_name=target_name,
+        doctor_id=doctor_id,
+        pharmacy_id=pharmacy_id,
         text=text,
         voice_file_id=voice_file_id,
+        latitude=latitude,
+        longitude=longitude,
     )
     session.add(report)
     await session.flush()
@@ -1381,6 +1389,7 @@ async def reports_by_author(
 ) -> list[DailyReport]:
     query = (
         select(DailyReport)
+        .options(selectinload(DailyReport.doctor), selectinload(DailyReport.pharmacy))
         .where(DailyReport.author_id == author_id)
         .order_by(desc(DailyReport.created_at))
         .limit(limit)

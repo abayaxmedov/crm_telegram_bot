@@ -201,16 +201,27 @@ class Pharmacy(Base, TimestampMixin):
 
 
 class DailyReport(Base, TimestampMixin):
+    """Kundalik hisobot / tashrif — medvakil doktor yoki dorixonaga borib, matn/ovozli
+    hisobot va (ixtiyoriy) geolokatsiya qoldiradi."""
+
     __tablename__ = "daily_reports"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     author_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_type: Mapped[str] = mapped_column(String(32), index=True)
+    target_type: Mapped[str] = mapped_column(String(32), index=True)  # "doctor" | "pharmacy"
     target_name: Mapped[str | None] = mapped_column(String(255))
+    # Aniq borilgan doktor/dorixona (target_type ga mos biri to'ldiriladi).
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id", ondelete="SET NULL"))
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"))
     text: Mapped[str | None] = mapped_column(Text)
     voice_file_id: Mapped[str | None] = mapped_column(String(255))
+    # Ixtiyoriy geolokatsiya (tashrif joyi).
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
 
     author: Mapped[User] = relationship()
+    doctor: Mapped["Doctor | None"] = relationship()
+    pharmacy: Mapped["Pharmacy | None"] = relationship()
 
 
 class Request(Base, TimestampMixin):

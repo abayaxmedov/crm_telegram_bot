@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Role, User
+from app.db.models import ApprovalStatus, Role, User
 from app.db.repositories import (
     add_daily_report,
     get_active_user,
+    get_doctor,
+    get_pharmacy,
     list_daily_reports,
+    list_doctors_visible,
+    list_pharmacies_visible,
     list_regions,
     list_report_authors,
     period_window,
@@ -24,6 +29,7 @@ from app.keyboards.reply import (
     daily_menu,
     entities_inline,
     inline_id_grid,
+    report_geo_keyboard,
     report_period_keyboard,
     report_role_keyboard,
     report_target_keyboard,
@@ -45,6 +51,16 @@ _PERIOD_LABEL = {"5d": "period_5d", "10d": "period_10d", "30d": "period_30d", "a
 
 class DailyReportFlow(StatesGroup):
     body = State()
+    geo = State()
+
+
+def _target_in_scope(user: User, entity) -> bool:
+    """Tanlangan doktor/dorixona APPROVED va yozuvchining ko'lamida (region) bo'lsin."""
+    if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
+        return False
+    if user.role in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
+        return True
+    return entity.region_id == user.region_id
 
 
 @router.message(F.text.in_(variants("btn_daily")))
@@ -69,21 +85,65 @@ async def report_start(message: Message, session: AsyncSession, lang: str) -> No
     if user.role not in REPORT_WRITER_ROLES:
         await message.answer(t(lang, "section_closed"))
         return
-    await message.answer(t(lang, "report_target_q"), reply_markup=report_target_keyboard(lang))
+    await message.answer(t(lang, "report_where_q"), reply_markup=report_target_keyboard(lang))
 
 
-@router.callback_query(F.data.startswith("report_target:"))
-async def report_target(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+@router.callback_query(F.data.startswith("report_where:"))
+async def report_where(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_callback_user(callback, session)
     if user is None:
         return
     if user.role not in REPORT_WRITER_ROLES:
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
+    target_type = (callback.data or "report_where:doctor").split(":", 1)[1]
+    await callback.answer()
 
-    target_type = callback.data.split(":", 1)[1] if callback.data else "general"
-    # Nom bosqichi yo'q — target tanlangach to'g'ridan matn yoki ovoz so'raladi.
-    await state.update_data(target_type=target_type, target_name=None)
+    if target_type == "doctor":
+        items = await list_doctors_visible(session, user)
+        if not items:
+            await callback.message.answer(t(lang, "report_no_doctors"))
+            return
+        head = t(lang, "report_pick_doctor")
+        rows = "\n".join(f"#{d.id} | {safe(d.full_name)}" for d in items)
+    else:
+        items = await list_pharmacies_visible(session, user)
+        if not items:
+            await callback.message.answer(t(lang, "report_no_pharmacies"))
+            return
+        head = t(lang, "report_pick_pharmacy")
+        rows = "\n".join(f"#{p.id} | {safe(p.name)}" for p in items)
+
+    await callback.message.answer(
+        head + "\n\n" + rows,
+        reply_markup=inline_id_grid([i.id for i in items], f"rep_tgt:{target_type}"),
+    )
+
+
+@router.callback_query(F.data.startswith("rep_tgt:"))
+async def report_target_pick(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if user.role not in REPORT_WRITER_ROLES:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    parts = (callback.data or "").split(":")  # rep_tgt:{type}:{id}
+    if len(parts) != 3:
+        await callback.answer()
+        return
+    target_type, target_id = parts[1], int(parts[2])
+    if target_type == "doctor":
+        entity = await get_doctor(session, target_id)
+        name = entity.full_name if entity else None
+    else:
+        entity = await get_pharmacy(session, target_id)
+        name = entity.name if entity else None
+    if not _target_in_scope(user, entity):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+
+    await state.update_data(target_type=target_type, target_id=target_id, target_name=name)
     await state.set_state(DailyReportFlow.body)
     await callback.message.answer(t(lang, "report_body_q"))
     await callback.answer()
@@ -94,25 +154,9 @@ async def report_voice(message: Message, session: AsyncSession, state: FSMContex
     user = await require_user(message, session)
     if user is None or message.voice is None:
         return
-
-    data = await state.get_data()
-    report = await add_daily_report(
-        session,
-        author=user,
-        target_type=data["target_type"],
-        target_name=data.get("target_name"),
-        text=clean_optional(message.caption),
-        voice_file_id=message.voice.file_id,
-    )
-    await session.commit()
-    await state.clear()
-    await answer_media(
-        message,
-        screen="done",
-        text=t(lang, "report_voice_saved", id=report.id),
-        lang=lang,
-        reply_markup=daily_menu(lang),
-    )
+    await state.update_data(voice_file_id=message.voice.file_id, text=clean_optional(message.caption))
+    await state.set_state(DailyReportFlow.geo)
+    await message.answer(t(lang, "report_ask_geo"), reply_markup=report_geo_keyboard(lang))
 
 
 @router.message(DailyReportFlow.body)
@@ -120,30 +164,80 @@ async def report_text(message: Message, session: AsyncSession, state: FSMContext
     user = await require_user(message, session)
     if user is None:
         return
-
     body = clean_optional(message.text)
     if body is None:
         await message.answer(t(lang, "report_body_empty"))
         return
+    await state.update_data(text=body, voice_file_id=None)
+    await state.set_state(DailyReportFlow.geo)
+    await message.answer(t(lang, "report_ask_geo"), reply_markup=report_geo_keyboard(lang))
 
+
+async def _finalize_report(message: Message, session, state, user, lang, *, lat, lng) -> None:
     data = await state.get_data()
+    ttype = data["target_type"]
     report = await add_daily_report(
         session,
         author=user,
-        target_type=data["target_type"],
+        target_type=ttype,
         target_name=data.get("target_name"),
-        text=body,
-        voice_file_id=None,
+        doctor_id=data.get("target_id") if ttype == "doctor" else None,
+        pharmacy_id=data.get("target_id") if ttype == "pharmacy" else None,
+        text=data.get("text"),
+        voice_file_id=data.get("voice_file_id"),
+        latitude=lat,
+        longitude=lng,
     )
     await session.commit()
     await state.clear()
-    await answer_media(
-        message,
-        screen="done",
-        text=t(lang, "report_saved", id=report.id),
-        lang=lang,
-        reply_markup=daily_menu(lang),
+    await message.answer(
+        t(lang, "report_done", id=report.id, target=safe(data.get("target_name"))),
+        reply_markup=ReplyKeyboardRemove(),
     )
+    await answer_media(
+        message, screen="menu", text=t(lang, "menu_text"), lang=lang,
+        reply_markup=daily_menu(lang, can_write=user.role in REPORT_WRITER_ROLES), sticker=False,
+    )
+
+
+@router.message(DailyReportFlow.geo, F.location)
+async def report_geo(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None:
+        await state.clear()
+        return
+    loc = message.location
+    await _finalize_report(
+        message, session, state, user, lang,
+        lat=Decimal(str(loc.latitude)), lng=Decimal(str(loc.longitude)),
+    )
+
+
+@router.message(DailyReportFlow.geo)
+async def report_geo_skip(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None:
+        await state.clear()
+        return
+    await _finalize_report(message, session, state, user, lang, lat=None, lng=None)
+
+
+def _target_label(report, lang: str) -> str:
+    """Doktor/dorixona ikonkasi bilan nom (nom bo'lmasa — target_type)."""
+    name = report.target_name or report.target_type or "-"
+    if report.target_type == "doctor":
+        return t(lang, "report_target_doctor", name=safe(name))
+    if report.target_type == "pharmacy":
+        return t(lang, "report_target_pharmacy", name=safe(name))
+    return safe(name)
+
+
+def _geo_suffix(report, lang: str) -> str:
+    """Geolokatsiya bo'lsa — xaritaga havola (ixtiyoriy)."""
+    if report.latitude is None or report.longitude is None:
+        return ""
+    url = f"https://maps.google.com/?q={report.latitude},{report.longitude}"
+    return "\n" + t(lang, "report_geo_link", url=url)
 
 
 def _report_line(report) -> str:
@@ -306,15 +400,17 @@ async def rep_pick_period(callback: CallbackQuery, session: AsyncSession, lang: 
     )
     for r in reports:
         date = str(r.created_at)[:16]
-        target = safe(r.target_name) if r.target_name else safe(r.target_type)
+        target = _target_label(r, lang)
+        geo = _geo_suffix(r, lang)
         body = (r.text or "").replace("\n", " ")
         if r.voice_file_id:
             cap = t(lang, "report_voice_cap", date=date, target=target, text=(" | " + escape(body)) if body else "")
+            cap = cap + geo
             try:
                 await callback.message.answer_voice(voice=r.voice_file_id, caption=cap[:1024])
             except Exception:
                 await callback.message.answer(cap)
         else:
             await callback.message.answer(
-                t(lang, "report_row_text", date=date, target=target, text=escape(body) or "-")
+                t(lang, "report_row_text", date=date, target=target, text=escape(body) or "-") + geo
             )

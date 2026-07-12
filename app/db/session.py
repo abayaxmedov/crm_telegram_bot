@@ -49,6 +49,10 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     add("sales", "total_price", "total_price NUMERIC(14, 2) DEFAULT 0")
     add("sales", "total_ball", "total_ball INTEGER DEFAULT 0")
     add("contracts", "file_id", "file_id VARCHAR(255)")
+    add("daily_reports", "doctor_id", "doctor_id INTEGER")
+    add("daily_reports", "pharmacy_id", "pharmacy_id INTEGER")
+    add("daily_reports", "latitude", "latitude NUMERIC(10, 7)")
+    add("daily_reports", "longitude", "longitude NUMERIC(10, 7)")
 
     # Enum ustunlari string sifatida saqlanadi (native_enum=False). Yangi enum
     # qiymatlari (masalan "regional_manager" = 16 belgi) eski, tor VARCHAR ustunlarga
