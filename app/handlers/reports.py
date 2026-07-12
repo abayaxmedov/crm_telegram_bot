@@ -17,8 +17,9 @@ from app.services.media import answer_media
 
 router = Router(name="reports")
 
-# Kunlik hisobot YOZADIGAN rollar (top/product faqat o'qiydi, operator/doktor yozmaydi).
-REPORT_WRITER_ROLES = {Role.OWNER, Role.MANAGER, Role.REGIONAL_MANAGER}
+# Kunlik hisobot YOZADIGAN rollar. Owner yozmaydi — faqat boshqalarning
+# hisobotlarini ko'radi (top/product ham faqat o'qiydi, operator/doktor yozmaydi).
+REPORT_WRITER_ROLES = {Role.MANAGER, Role.REGIONAL_MANAGER}
 
 
 class DailyReportFlow(StatesGroup):
@@ -31,7 +32,13 @@ async def daily_panel(message: Message, session: AsyncSession, lang: str) -> Non
     user = await require_user(message, session)
     if user is None:
         return
-    await answer_media(message, screen="daily", text=t(lang, "daily_text"), lang=lang, reply_markup=daily_menu(lang))
+    await answer_media(
+        message,
+        screen="daily",
+        text=t(lang, "daily_text"),
+        lang=lang,
+        reply_markup=daily_menu(lang, can_write=user.role in REPORT_WRITER_ROLES),
+    )
 
 
 @router.message(F.text.in_(variants("btn_report_add")))
@@ -133,7 +140,7 @@ async def reports_list(message: Message, session: AsyncSession, lang: str) -> No
 
     reports = await list_daily_reports(session, actor=user)
     if not reports:
-        await message.answer(t(lang, "reports_empty"), reply_markup=daily_menu(lang))
+        await message.answer(t(lang, "reports_empty"), reply_markup=daily_menu(lang, can_write=user.role in REPORT_WRITER_ROLES))
         return
 
     lines = []
@@ -143,4 +150,4 @@ async def reports_list(message: Message, session: AsyncSession, lang: str) -> No
         lines.append(
             f"#{report.id} | {safe(report.target_type)} | {safe(report.target_name)} | {kind} | {escape(preview)}"
         )
-    await message.answer(t(lang, "reports_header") + "\n\n" + "\n".join(lines), reply_markup=daily_menu(lang))
+    await message.answer(t(lang, "reports_header") + "\n\n" + "\n".join(lines), reply_markup=daily_menu(lang, can_write=user.role in REPORT_WRITER_ROLES))

@@ -201,11 +201,14 @@ def excel_periods_keyboard(lang: str, prefix: str) -> InlineKeyboardMarkup:
     )
 
 
-def daily_menu(lang: str) -> ReplyKeyboardMarkup:
-    return reply_keyboard(
-        [[t(lang, "btn_report_add"), t(lang, "btn_reports_list")], [t(lang, "btn_menu")]],
-        placeholder=t(lang, "ph_select_section"),
-    )
+def daily_menu(lang: str, can_write: bool = True) -> ReplyKeyboardMarkup:
+    # can_write=False (owner): faqat boshqalarning hisobotlarini ko'radi, o'zi yozmaydi.
+    if can_write:
+        rows = [[t(lang, "btn_report_add"), t(lang, "btn_reports_list")]]
+    else:
+        rows = [[t(lang, "btn_reports_list")]]
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 
 
 def requests_menu(lang: str) -> ReplyKeyboardMarkup:
