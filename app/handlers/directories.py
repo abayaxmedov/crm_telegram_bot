@@ -50,7 +50,6 @@ class PharmacyFlow(StatesGroup):
     inn = State()
     filial = State()
     notes = State()
-    region = State()
 
 
 async def _ask_region(message: Message, session: AsyncSession, state: FSMContext, lang: str, next_state: State, prefix: str) -> bool:
@@ -310,28 +309,14 @@ async def pharmacy_filial(message: Message, state: FSMContext, lang: str) -> Non
 
 
 @router.message(PharmacyFlow.notes)
-async def pharmacy_notes(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+async def pharmacy_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
-    await state.update_data(notes=clean_optional(message.text))
-    await _ask_region(message, session, state, lang, PharmacyFlow.region, "pha_region")
-
-
-@router.callback_query(PharmacyFlow.region, F.data.startswith("pha_region:"))
-async def pharmacy_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    user = await require_callback_user(callback, session)
-    if user is None:
-        return
-    region_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
-    region = await get_region(session, region_id)
-    if region is None:
-        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
-        return
-    await callback.answer()
 
     data = await state.get_data()
     status = ApprovalStatus.APPROVED if creates_entity_approved(user.role) else ApprovalStatus.PENDING
+    # Region tanlanmaydi — apteka yaratuvchi (menejer/medvakil) regioniga bog'lanadi.
     pharmacy = await add_pharmacy(
         session,
         name=data["name"],
@@ -339,10 +324,10 @@ async def pharmacy_finish(callback: CallbackQuery, session: AsyncSession, state:
         location_text=data.get("location"),
         responsible_person=data.get("responsible"),
         manager=user,
-        notes=data.get("notes"),
+        notes=clean_optional(message.text),
         inn=data.get("inn"),
         filial=data.get("filial"),
-        region_id=region_id,
+        region_id=user.region_id,
         approval_status=status,
         latitude=Decimal(data["lat"]) if data.get("lat") else None,
         longitude=Decimal(data["lng"]) if data.get("lng") else None,
@@ -354,7 +339,13 @@ async def pharmacy_finish(callback: CallbackQuery, session: AsyncSession, state:
         text = t(lang, "pharmacy_saved", id=pharmacy.id, name=escape(pharmacy.name))
     else:
         text = t(lang, "entity_pending")
-    await answer_media(callback.message, screen="done", text=text, lang=lang, reply_markup=pharmacies_menu(lang))
+    await answer_media(
+        message,
+        screen="done",
+        text=text,
+        lang=lang,
+        reply_markup=pharmacies_menu(lang, can_add=can_add_directories(user.role)),
+    )
 
 
 @router.message(F.text.in_(variants("btn_pharmacies_list")))
