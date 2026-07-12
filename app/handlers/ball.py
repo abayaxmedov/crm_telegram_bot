@@ -25,7 +25,6 @@ from app.db.repositories import (
     ball_balances_overview,
     ball_transactions_in_period,
     create_ball_transfer,
-    doctors_for_ball_transfer,
     finish_ball_transfer,
     get_ball_balance,
     get_ball_transaction,
@@ -39,10 +38,10 @@ from app.i18n import ball_kind_label, ball_status_label, normalize, role_label, 
 from app.keyboards.reply import (
     ball_accept_keyboard,
     ball_inline_keyboard,
-    entities_inline,
     excel_periods_keyboard,
 )
 from app.services.excel import build_xlsx
+from app.services.listing import show_list
 from app.services.notify import DOCTOR_MESSAGE_TTL, send_to_doctor
 from app.services.security import ball_transfer_target_role, can_use_ball, can_view_hierarchy_reports
 
@@ -114,7 +113,7 @@ async def ball_panel(message: Message, session: AsyncSession, state: FSMContext,
 
 
 @router.callback_query(F.data == "ball:send")
-async def ball_send_start(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+async def ball_send_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_callback_user(callback, session)
     if user is None:
         return
@@ -123,44 +122,14 @@ async def ball_send_start(callback: CallbackQuery, session: AsyncSession, lang: 
         return
 
     if user.role == Role.MANAGER:
-        doctors = await doctors_for_ball_transfer(session, user)
-        if not doctors:
-            await callback.message.answer(t(lang, "ball_no_linked_doctors"))
-            await callback.answer()
-            return
-        await callback.message.answer(
-            t(lang, "ball_choose_recipient"),
-            reply_markup=entities_inline([(d.id, d.full_name) for d in doctors], "ball_to_doc"),
-        )
+        await show_list(callback.message, session, user, lang, state, "ball_doc")
         await callback.answer()
         return
 
-    target_role = ball_transfer_target_role(user.role)
-    if target_role is None:
+    if ball_transfer_target_role(user.role) is None:
         await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
         return
-
-    query = (
-        select(User)
-        .options(selectinload(User.region))
-        .where(User.role == target_role, User.is_active.is_(True), User.telegram_id.is_not(None))
-        .order_by(User.full_name)
-    )
-    if user.role == Role.REGIONAL_MANAGER:
-        # Regional menejer faqat o'z regionidagi medvakillarga yuboradi.
-        query = query.where(User.region_id == user.region_id)
-    recipients = list((await session.execute(query)).scalars())
-    if not recipients:
-        await callback.message.answer(t(lang, "ball_no_recipients"))
-        await callback.answer()
-        return
-
-    labels = [
-        (u.id, f"{u.full_name}" + (f" ({u.region.name})" if u.region else "")) for u in recipients
-    ]
-    await callback.message.answer(
-        t(lang, "ball_choose_recipient"), reply_markup=entities_inline(labels, "ball_to_user")
-    )
+    await show_list(callback.message, session, user, lang, state, "ball_user")
     await callback.answer()
 
 

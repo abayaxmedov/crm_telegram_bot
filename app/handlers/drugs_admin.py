@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.repositories import add_drug, get_drug, list_all_drugs, update_drug
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import drugs_menu, entities_inline
+from app.keyboards.reply import drugs_menu
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import can_manage_drugs
 
@@ -154,19 +155,14 @@ async def drugs_list(message: Message, session: AsyncSession, lang: str) -> None
 
 
 @router.message(F.text.in_(variants("btn_drug_edit")))
-async def drug_edit_start(message: Message, session: AsyncSession, lang: str) -> None:
+async def drug_edit_start(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_manage_drugs(user.role):
         await message.answer(t(lang, "no_perm_drugs"))
         return
-    drugs = await list_all_drugs(session)
-    if not drugs:
-        await message.answer(t(lang, "drugs_empty"), reply_markup=drugs_menu(lang))
-        return
-    items = [(d.id, f"{d.name} ({d.price or 0:,.2f} | {int(d.ball or 0)})") for d in drugs]
-    await message.answer(t(lang, "drug_pick_edit"), reply_markup=entities_inline(items, "drug_edit"))
+    await show_list(message, session, user, lang, state, "drug_edit")
 
 
 @router.callback_query(F.data.startswith("drug_edit:"))

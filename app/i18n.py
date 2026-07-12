@@ -1030,6 +1030,91 @@ STRINGS: dict[str, dict[str, str]] = {
         RU: "У вас нет прав для просмотра этих отчётов.",
     },
 
+    # ================= Ro'yxat: sahifalash + qidiruv =================
+    "btn_page_prev": {UZ_CYRL: "⬅️ Олдинги 10", RU: "⬅️ Пред. 10"},
+    "btn_page_next": {UZ_CYRL: "Кейинги 10 ➡️", RU: "След. 10 ➡️"},
+    "btn_list_search": {UZ_CYRL: "🔍 Ном бўйича қидириш", RU: "🔍 Поиск по имени"},
+    "btn_list_clear": {UZ_CYRL: "✖️ Қидирувни тозалаш", RU: "✖️ Сбросить поиск"},
+    "list_search_prompt": {
+        UZ_CYRL: "🔍 Қидирув сўзини киритинг (ном бўйича):",
+        RU: "🔍 Введите слово для поиска (по имени):",
+    },
+    "list_page_info": {
+        UZ_CYRL: "📄 {page}/{pages}-саҳифа · жами {total} та",
+        RU: "📄 стр. {page}/{pages} · всего {total}",
+    },
+    "list_search_active": {UZ_CYRL: "🔍 Қидирув: «{q}»", RU: "🔍 Поиск: «{q}»"},
+    "list_search_empty": {
+        UZ_CYRL: "🔍 «{q}» бўйича ҳеч нарса топилмади.",
+        RU: "🔍 По запросу «{q}» ничего не найдено.",
+    },
+    "doctor_card": {
+        UZ_CYRL: (
+            "🧑‍⚕️ <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "📞 {phone}\n"
+            "🌐 {region}\n"
+            "🏷 {category}\n"
+            "📍 {location}\n"
+            "👤 {manager}\n"
+            "💠 Балл: {ball}"
+        ),
+        RU: (
+            "🧑‍⚕️ <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "📞 {phone}\n"
+            "🌐 {region}\n"
+            "🏷 {category}\n"
+            "📍 {location}\n"
+            "👤 {manager}\n"
+            "💠 Балл: {ball}"
+        ),
+    },
+    "user_card": {
+        UZ_CYRL: (
+            "👤 <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "🎖 {role}\n"
+            "🌐 {region}\n"
+            "📞 {phone}\n"
+            "💬 TG: {tg}\n"
+            "💠 Балл: {ball}\n"
+            "{active}"
+        ),
+        RU: (
+            "👤 <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "🎖 {role}\n"
+            "🌐 {region}\n"
+            "📞 {phone}\n"
+            "💬 TG: {tg}\n"
+            "💠 Балл: {ball}\n"
+            "{active}"
+        ),
+    },
+    "pharmacy_card": {
+        UZ_CYRL: (
+            "💊 <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "🏢 Филиал: {filial}\n"
+            "🧾 ИНН: {inn}\n"
+            "📞 {phone}\n"
+            "🌐 {region}\n"
+            "👤 Масъул: {responsible}\n"
+            "📍 {location}"
+        ),
+        RU: (
+            "💊 <b>{name}</b>\n"
+            "🆔 #{id}\n"
+            "🏢 Филиал: {filial}\n"
+            "🧾 ИНН: {inn}\n"
+            "📞 {phone}\n"
+            "🌐 {region}\n"
+            "👤 Ответственный: {responsible}\n"
+            "📍 {location}"
+        ),
+    },
+
     # ================= FSM oqim boshqaruvi =================
     "flow_cancelled": {
         UZ_CYRL: "❕ Жорий амал бекор қилинди.",

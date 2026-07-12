@@ -22,6 +22,7 @@ from app.handlers.utils import clean_optional, require_callback_user, require_us
 from app.i18n import t, variants
 from app.keyboards.reply import doctors_menu, entities_inline, location_request_keyboard, pharmacies_menu
 from app.services.excel import build_xlsx
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import (
     can_add_directories,
@@ -172,23 +173,14 @@ async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: F
 
 
 @router.message(F.text.in_(variants("btn_doctors_list")))
-async def doctors_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def doctors_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_view_directories(user.role):
         await message.answer(t(lang, "section_closed"))
         return
-    menu = doctors_menu(lang, can_add=can_add_directories(user.role))
-    doctors = await list_doctors_visible(session, user)
-    if not doctors:
-        await message.answer(t(lang, "doctors_empty"), reply_markup=menu)
-        return
-    text = t(lang, "doctors_header") + "\n\n" + "\n".join(
-        f"#{doctor.id} | {safe(doctor.full_name)} | {safe(doctor.phone_number)} | 💠 {int(doctor.ball_balance or 0)}"
-        for doctor in doctors[:50]
-    )
-    await message.answer(text, reply_markup=menu)
+    await show_list(message, session, user, lang, state, "doc_dir")
 
 
 @router.message(F.text.in_(variants("btn_doctors_excel")))
@@ -349,25 +341,14 @@ async def pharmacy_finish(message: Message, session: AsyncSession, state: FSMCon
 
 
 @router.message(F.text.in_(variants("btn_pharmacies_list")))
-async def pharmacies_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def pharmacies_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_view_pharmacies(user.role):
         await message.answer(t(lang, "section_closed"))
         return
-    menu = pharmacies_menu(lang, can_add=can_add_directories(user.role))
-    pharmacies = await list_pharmacies_visible(session, user)
-    if not pharmacies:
-        await message.answer(t(lang, "pharmacies_empty"), reply_markup=menu)
-        return
-    text = t(lang, "pharmacies_header") + "\n\n" + "\n".join(
-        f"#{pharmacy.id} | {safe(pharmacy.name)}"
-        + (f" (Ф: {safe(pharmacy.filial)})" if pharmacy.filial else "")
-        + f" | ИНН {safe(pharmacy.inn)} | {safe(pharmacy.responsible_person)}"
-        for pharmacy in pharmacies[:50]
-    )
-    await message.answer(text, reply_markup=menu)
+    await show_list(message, session, user, lang, state, "ph_dir")
 
 
 @router.message(F.text.in_(variants("btn_pharmacies_excel")))

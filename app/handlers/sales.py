@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ApprovalStatus, Pharmacy, Role, User
+from app.db.models import ApprovalStatus, Role, User
 from app.db.repositories import (
     create_sale,
     get_ball_balance,
@@ -21,14 +21,12 @@ from app.db.repositories import (
     get_doctor_with_user,
     get_drug,
     get_pharmacy,
-    list_active_drugs,
-    list_doctors_visible,
-    list_pharmacies_visible,
 )
 from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user
 from app.i18n import normalize, t, variants
-from app.keyboards.reply import entities_inline, main_menu, sale_cart_keyboard
+from app.keyboards.reply import main_menu, sale_cart_keyboard
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.notify import send_to_doctor
 from app.services.security import can_record_sales
@@ -67,12 +65,6 @@ def _num(value) -> str:
     return str(int(d)) if d == d.to_integral_value() else f"{d:.2f}"
 
 
-def _ph_label(pharmacy: Pharmacy) -> str:
-    if pharmacy.filial:
-        return f"{pharmacy.name} (Филиал: {pharmacy.filial})"
-    return pharmacy.name
-
-
 def _cart_text(lang: str, cart: list[dict]) -> str:
     lines = [
         f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}. (💠 {int(c['ball']) * int(c['qty'])})"
@@ -81,15 +73,8 @@ def _cart_text(lang: str, cart: list[dict]) -> str:
     return t(lang, "cart_title") + "\n" + "\n".join(lines)
 
 
-async def _send_drug_choice(message: Message, session: AsyncSession, lang: str) -> None:
-    drugs = await list_active_drugs(session)
-    if not drugs:
-        await message.answer(t(lang, "sales_no_drugs"))
-        return
-    items = [
-        (d.id, f"{d.name} ({t(lang, 'stock_short')}: {d.stock} | 💠 {int(d.ball or 0)})") for d in drugs
-    ]
-    await message.answer(t(lang, "sales_choose_drug"), reply_markup=entities_inline(items, "sale_drug"))
+async def _send_drug_choice(message: Message, session: AsyncSession, user: User, lang: str, state: FSMContext) -> None:
+    await show_list(message, session, user, lang, state, "sale_drug")
 
 
 @router.message(F.text.in_(variants("btn_sales")), RoleFilter(*SELLER_ROLES))
@@ -97,15 +82,8 @@ async def sales_start(message: Message, session: AsyncSession, state: FSMContext
     rep = await require_user(message, session)
     if rep is None:
         return
-    pharmacies = await list_pharmacies_visible(session, rep)
-    if not pharmacies:
-        await message.answer(t(lang, "sales_no_pharmacies"))
-        return
     await state.clear()
-    await message.answer(
-        t(lang, "sales_choose_pharmacy"),
-        reply_markup=entities_inline([(p.id, _ph_label(p)) for p in pharmacies], "sale_ph"),
-    )
+    await show_list(message, session, rep, lang, state, "sale_ph")
 
 
 @router.callback_query(F.data.startswith("sale_ph:"))
@@ -118,16 +96,8 @@ async def sale_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, sta
     if not _entity_in_scope(rep, pharmacy):
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
-    doctors = await list_doctors_visible(session, rep)
-    if not doctors:
-        await callback.message.answer(t(lang, "sales_no_doctors"))
-        await callback.answer()
-        return
     await state.update_data(pharmacy_id=pharmacy.id, doctor_id=None, cart=[])
-    await callback.message.answer(
-        t(lang, "sales_choose_doctor"),
-        reply_markup=entities_inline([(d.id, d.full_name) for d in doctors], "sale_doc"),
-    )
+    await show_list(callback.message, session, rep, lang, state, "sale_doc")
     await callback.answer()
 
 
@@ -146,7 +116,7 @@ async def sale_pick_doctor(callback: CallbackQuery, session: AsyncSession, state
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
     await state.update_data(doctor_id=doctor.id)
-    await _send_drug_choice(callback.message, session, lang)
+    await _send_drug_choice(callback.message, session, rep, lang, state)
     await callback.answer()
 
 
@@ -207,10 +177,11 @@ async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, l
 
 
 @router.callback_query(F.data == "sale_cart:add")
-async def sale_cart_add(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    if await _require_seller(callback, session, lang) is None:
+async def sale_cart_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    rep = await _require_seller(callback, session, lang)
+    if rep is None:
         return
-    await _send_drug_choice(callback.message, session, lang)
+    await _send_drug_choice(callback.message, session, rep, lang, state)
     await callback.answer()
 
 

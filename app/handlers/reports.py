@@ -16,10 +16,7 @@ from app.db.repositories import (
     get_doctor,
     get_pharmacy,
     list_daily_reports,
-    list_doctors_visible,
-    list_pharmacies_visible,
     list_regions,
-    list_report_authors,
     period_window,
     reports_by_author,
 )
@@ -28,12 +25,12 @@ from app.i18n import role_label, t, variants
 from app.keyboards.reply import (
     daily_menu,
     entities_inline,
-    inline_id_grid,
     report_geo_keyboard,
     report_period_keyboard,
     report_role_keyboard,
     report_target_keyboard,
 )
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import REGION_SCOPED_REPORT_ROLES, reports_viewer_roles
 
@@ -97,27 +94,9 @@ async def report_where(callback: CallbackQuery, session: AsyncSession, state: FS
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
     target_type = (callback.data or "report_where:doctor").split(":", 1)[1]
+    key = "rep_tgt_doctor" if target_type == "doctor" else "rep_tgt_pharmacy"
+    await show_list(callback.message, session, user, lang, state, key)
     await callback.answer()
-
-    if target_type == "doctor":
-        items = await list_doctors_visible(session, user)
-        if not items:
-            await callback.message.answer(t(lang, "report_no_doctors"))
-            return
-        head = t(lang, "report_pick_doctor")
-        rows = "\n".join(f"#{d.id} | {safe(d.full_name)}" for d in items)
-    else:
-        items = await list_pharmacies_visible(session, user)
-        if not items:
-            await callback.message.answer(t(lang, "report_no_pharmacies"))
-            return
-        head = t(lang, "report_pick_pharmacy")
-        rows = "\n".join(f"#{p.id} | {safe(p.name)}" for p in items)
-
-    await callback.message.answer(
-        head + "\n\n" + rows,
-        reply_markup=inline_id_grid([i.id for i in items], f"rep_tgt:{target_type}"),
-    )
 
 
 @router.callback_query(F.data.startswith("rep_tgt:"))
@@ -255,15 +234,11 @@ def _can_view_author(actor: User, emp: User) -> bool:
     return True
 
 
-async def _show_employees(msg: Message, session: AsyncSession, lang: str, *, role: Role, region_id: int | None) -> None:
-    emps = await list_report_authors(session, role=role, region_id=region_id)
-    if not emps:
-        await msg.answer(t(lang, "reports_no_employees"))
-        return
-    rows = "\n".join(t(lang, "reports_emp_row", id=e.id, name=safe(e.full_name)) for e in emps)
-    await msg.answer(
-        t(lang, "reports_emp_header") + "\n\n" + rows,
-        reply_markup=inline_id_grid([e.id for e in emps], "rep_emp"),
+async def _show_employees(
+    msg: Message, session: AsyncSession, user: User, lang: str, state: FSMContext, *, role: Role, region_id: int | None
+) -> None:
+    await show_list(
+        msg, session, user, lang, state, "rep_emp", ctx={"role": role.value, "region_id": region_id}
     )
 
 
@@ -278,7 +253,7 @@ async def _guard_drill(callback: CallbackQuery, session: AsyncSession, lang: str
 
 
 @router.message(F.text.in_(variants("btn_reports_list")))
-async def reports_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def reports_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
@@ -300,7 +275,7 @@ async def reports_list(message: Message, session: AsyncSession, lang: str) -> No
 
     # Regional — to'g'ridan o'z regioni medvakillari.
     if user.role == Role.REGIONAL_MANAGER:
-        await _show_employees(message, session, lang, role=Role.MANAGER, region_id=user.region_id)
+        await _show_employees(message, session, user, lang, state, role=Role.MANAGER, region_id=user.region_id)
         return
 
     # Owner / TOP / product — avval rol tanlash.
@@ -309,7 +284,7 @@ async def reports_list(message: Message, session: AsyncSession, lang: str) -> No
 
 
 @router.callback_query(F.data.startswith("rep_role:"))
-async def rep_pick_role(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+async def rep_pick_role(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await _guard_drill(callback, session, lang)
     if user is None:
         return
@@ -329,11 +304,11 @@ async def rep_pick_role(callback: CallbackQuery, session: AsyncSession, lang: st
         )
         return
     # TOP / product — region yo'q, to'g'ridan xodimlar.
-    await _show_employees(callback.message, session, lang, role=role, region_id=None)
+    await _show_employees(callback.message, session, user, lang, state, role=role, region_id=None)
 
 
 @router.callback_query(F.data.startswith("rep_reg:"))
-async def rep_pick_region(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+async def rep_pick_region(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await _guard_drill(callback, session, lang)
     if user is None:
         return

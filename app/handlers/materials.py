@@ -6,10 +6,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.repositories import add_material, get_material, list_materials
+from app.db.repositories import add_material, get_material
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import entities_inline, materials_menu
+from app.keyboards.reply import materials_menu
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import can_upload_materials, can_view_materials
 
@@ -76,21 +77,14 @@ async def material_title(message: Message, session: AsyncSession, state: FSMCont
 
 
 @router.message(F.text.in_(variants("btn_materials")))
-async def materials_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def materials_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if not can_view_materials(user.role):
         await message.answer(t(lang, "section_closed"))
         return
-    materials = await list_materials(session)
-    if not materials:
-        await message.answer(t(lang, "materials_empty"))
-        return
-    await message.answer(
-        t(lang, "materials_header"),
-        reply_markup=entities_inline([(m.id, m.title) for m in materials], "material"),
-    )
+    await show_list(message, session, user, lang, state, "material")
 
 
 @router.callback_query(F.data.startswith("material:"))

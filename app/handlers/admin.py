@@ -14,6 +14,7 @@ from app.db.repositories import create_invited_user, get_region, list_regions, l
 from app.handlers.utils import require_callback_user, require_user, user_line
 from app.i18n import role_label, t, variants
 from app.keyboards.reply import admin_menu, back_menu, entities_inline, role_inline_keyboard
+from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import ROLES_WITH_REGION, can_create_role
 
@@ -151,18 +152,11 @@ async def _finalize_user(
 
 
 @router.message(F.text.in_(variants("btn_users")))
-async def users_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def users_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
         return
     if user.role != Role.OWNER:
         await message.answer(t(lang, "users_list_closed"))
         return
-
-    rows = await list_users(session)
-    if not rows:
-        await message.answer(t(lang, "no_users"), reply_markup=admin_menu(lang))
-        return
-
-    text = t(lang, "last_users") + "\n\n" + "\n".join(user_line(row, lang) for row in rows)
-    await message.answer(text, reply_markup=admin_menu(lang))
+    await show_list(message, session, user, lang, state, "users")

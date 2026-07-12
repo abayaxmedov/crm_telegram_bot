@@ -520,8 +520,26 @@ async def get_doctor_with_user(session: AsyncSession, doctor_id: int) -> Doctor 
     return result.scalar_one_or_none()
 
 
+async def get_doctor_full(session: AsyncSession, doctor_id: int) -> Doctor | None:
+    """Doktor + region + masъул (detail karta uchun)."""
+    result = await session.execute(
+        select(Doctor)
+        .options(selectinload(Doctor.region), selectinload(Doctor.manager))
+        .where(Doctor.id == doctor_id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_pharmacy(session: AsyncSession, pharmacy_id: int) -> Pharmacy | None:
     return (await session.execute(select(Pharmacy).where(Pharmacy.id == pharmacy_id))).scalar_one_or_none()
+
+
+async def get_pharmacy_full(session: AsyncSession, pharmacy_id: int) -> Pharmacy | None:
+    """Dorixona + region (detail karta uchun)."""
+    result = await session.execute(
+        select(Pharmacy).options(selectinload(Pharmacy.region)).where(Pharmacy.id == pharmacy_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def list_active_drugs(session: AsyncSession) -> list[Drug]:
@@ -1376,6 +1394,14 @@ async def list_report_authors(
 async def get_active_user(session: AsyncSession, user_id: int) -> User | None:
     result = await session.execute(
         select(User).options(selectinload(User.region)).where(User.id == user_id, User.is_active.is_(True))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_full(session: AsyncSession, user_id: int) -> User | None:
+    """Foydalanuvchi + region (faol/nofaol — detail karta uchun)."""
+    result = await session.execute(
+        select(User).options(selectinload(User.region)).where(User.id == user_id)
     )
     return result.scalar_one_or_none()
 

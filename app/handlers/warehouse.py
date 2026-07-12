@@ -18,9 +18,7 @@ from app.db.repositories import (
     get_contract,
     get_drug,
     get_pharmacy,
-    list_active_drugs,
     list_contracts_for_pharmacy,
-    list_pharmacies_visible,
     request_contract,
     search_pharmacies_visible,
 )
@@ -29,12 +27,12 @@ from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
 from app.keyboards.reply import (
     contracts_inline,
-    entities_inline,
     inline_id_grid,
     main_menu,
     wh_cart_keyboard,
     wh_method_keyboard,
 )
+from app.services.listing import show_list
 from app.services.media import answer_media
 
 router = Router(name="warehouse")
@@ -88,13 +86,8 @@ def _pharmacy_list_text(lang: str, pharmacies: list[Pharmacy]) -> str:
     return t(lang, "wh_list_header") + "\n\n" + "\n".join(lines)
 
 
-async def _send_drug_choice(message: Message, session: AsyncSession, lang: str) -> None:
-    drugs = await list_active_drugs(session)
-    if not drugs:
-        await message.answer(t(lang, "sales_no_drugs"))
-        return
-    items = [(d.id, d.name) for d in drugs]
-    await message.answer(t(lang, "wh_choose_drug"), reply_markup=entities_inline(items, "wh_drug"))
+async def _send_drug_choice(message: Message, session: AsyncSession, user: User, lang: str, state: FSMContext) -> None:
+    await show_list(message, session, user, lang, state, "wh_drug")
 
 
 # ==================== Kirish: usul tanlash ====================
@@ -123,15 +116,7 @@ async def wh_method_list(callback: CallbackQuery, session: AsyncSession, state: 
     if user is None:
         return
     await state.clear()
-    pharmacies = await list_pharmacies_visible(session, user)
-    if not pharmacies:
-        await callback.message.answer(t(lang, "wh_list_empty"))
-        await callback.answer()
-        return
-    await callback.message.answer(
-        _pharmacy_list_text(lang, pharmacies),
-        reply_markup=inline_id_grid([p.id for p in pharmacies], "wh_ph"),
-    )
+    await show_list(callback.message, session, user, lang, state, "wh_ph")
     await callback.answer()
 
 
@@ -200,14 +185,15 @@ async def wh_request_contract(callback: CallbackQuery, session: AsyncSession, st
 
 @router.callback_query(F.data.startswith("wh_contract:"))
 async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    if await _require_wh_user(callback, session, lang) is None:
+    user = await _require_wh_user(callback, session, lang)
+    if user is None:
         return
     data = await state.get_data()
     if not data.get("pharmacy_id"):
         await callback.answer(t(lang, "flow_expired"), show_alert=True)
         return
     await state.update_data(contract_id=int(callback.data.split(":", 1)[1]), cart=[])
-    await _send_drug_choice(callback.message, session, lang)
+    await _send_drug_choice(callback.message, session, user, lang, state)
     await callback.answer()
 
 
@@ -252,10 +238,11 @@ async def wh_qty(message: Message, session: AsyncSession, state: FSMContext, lan
 
 
 @router.callback_query(F.data == "wh_cart:add")
-async def wh_cart_add(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    if await _require_wh_user(callback, session, lang) is None:
+async def wh_cart_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await _require_wh_user(callback, session, lang)
+    if user is None:
         return
-    await _send_drug_choice(callback.message, session, lang)
+    await _send_drug_choice(callback.message, session, user, lang, state)
     await callback.answer()
 
 

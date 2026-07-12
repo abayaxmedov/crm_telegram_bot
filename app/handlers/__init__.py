@@ -10,6 +10,7 @@ from app.handlers import (
     directories,
     drugs_admin,
     finance,
+    listing,
     materials,
     operator,
     regions,
@@ -28,6 +29,8 @@ def setup_routers(dp: Dispatcher) -> None:
     # BIRINCHI: FSM holatida menyu tugmasi bosilsa oqimni bekor qiladi
     # (holat bo'lmasa SkipHandler bilan keyingi routerlarga o'tkazadi).
     dp.include_router(cancel.router)
+    # Sahifalangan ro'yxatlar (navigatsiya/qidiruv/karta) — feature routerlardan oldin.
+    dp.include_router(listing.router)
     dp.include_router(admin.router)
     dp.include_router(regions.router)
     dp.include_router(drugs_admin.router)
