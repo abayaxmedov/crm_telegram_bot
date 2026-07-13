@@ -22,7 +22,7 @@ from app.db.repositories import (
 from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.services.security import can_approve_entities, can_approve_warehouse
+from app.services.security import can_approve_doctors, can_approve_pharmacies, can_approve_warehouse
 
 router = Router(name="operator")
 
@@ -144,19 +144,32 @@ def _pharmacy_card(lang: str, pharmacy) -> str:
     )
 
 
-@router.message(F.text.in_(variants("btn_entity_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
-async def entity_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
+@router.message(F.text.in_(variants("btn_doctor_approve")), RoleFilter(Role.TOP_MANAGER, Role.OWNER))
+async def doctor_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
+    """Doktor tasdiqlash — faqat TOP menejer (va owner)."""
     user = await require_user(message, session)
     if user is None:
         return
     doctors = await list_pending_doctors(session)
-    pharmacies = await list_pending_pharmacies(session)
-    if not doctors and not pharmacies:
-        await message.answer(t(lang, "entity_approve_empty"))
+    if not doctors:
+        await message.answer(t(lang, "doctor_approve_empty"))
         return
-    await message.answer(t(lang, "entity_approve_header"))
+    await message.answer(t(lang, "doctor_approve_header"))
     for doctor in doctors:
         await message.answer(_doctor_card(lang, doctor), reply_markup=_entity_kb(lang, "d", doctor.id))
+
+
+@router.message(F.text.in_(variants("btn_pharmacy_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
+async def pharmacy_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
+    """Dorixona tasdiqlash — operator (va owner)."""
+    user = await require_user(message, session)
+    if user is None:
+        return
+    pharmacies = await list_pending_pharmacies(session)
+    if not pharmacies:
+        await message.answer(t(lang, "pharmacy_approve_empty"))
+        return
+    await message.answer(t(lang, "pharmacy_approve_header"))
     for pharmacy in pharmacies:
         await message.answer(_pharmacy_card(lang, pharmacy), reply_markup=_entity_kb(lang, "p", pharmacy.id))
 
@@ -185,14 +198,16 @@ async def entity_ok(callback: CallbackQuery, session: AsyncSession, state: FSMCo
     user = await require_callback_user(callback, session)
     if user is None:
         return
-    if not can_approve_entities(user.role):
-        await callback.answer(t(lang, "section_closed"), show_alert=True)
-        return
     parts = (callback.data or "").split(":")
     if len(parts) != 3:
         await callback.answer()
         return
     kind, entity_id = parts[1], int(parts[2])
+    # Doktor -> TOP menejer; dorixona -> operator (soxta callback'ga qarshi tur bo'yicha gate).
+    allowed = can_approve_doctors(user.role) if kind == "d" else can_approve_pharmacies(user.role)
+    if not allowed:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
     entity = await _get_pending(callback, session, lang, kind, entity_id)
     if entity is None:
         return
@@ -233,7 +248,7 @@ async def _pha_name_entry(
     user = await require_callback_user(callback, session)
     if user is None:
         return None
-    if not can_approve_entities(user.role):
+    if not can_approve_pharmacies(user.role):
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return None
     parts = (callback.data or "").split(":")
@@ -293,7 +308,7 @@ async def pha_contract_file(message: Message, session: AsyncSession, state: FSMC
     user = await require_user(message, session)
     if user is None or message.document is None:
         return
-    if not can_approve_entities(user.role):
+    if not can_approve_pharmacies(user.role):
         await state.clear()
         return
 
@@ -329,14 +344,15 @@ async def entity_reject(callback: CallbackQuery, session: AsyncSession, lang: st
     user = await require_callback_user(callback, session)
     if user is None:
         return
-    if not can_approve_entities(user.role):
-        await callback.answer(t(lang, "section_closed"), show_alert=True)
-        return
     parts = (callback.data or "").split(":")
     if len(parts) != 3:
         await callback.answer()
         return
     kind, entity_id = parts[1], int(parts[2])
+    allowed = can_approve_doctors(user.role) if kind == "d" else can_approve_pharmacies(user.role)
+    if not allowed:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
     entity = await _get_pending(callback, session, lang, kind, entity_id)
     if entity is None:
         return

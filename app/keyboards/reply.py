@@ -38,7 +38,8 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [admin, regions],
             [doctors, pharmacies],
             [drugs, ball],
-            [t(lang, "btn_entity_approve"), t(lang, "btn_wh_approve")],
+            [t(lang, "btn_doctor_approve"), t(lang, "btn_pharmacy_approve")],
+            [t(lang, "btn_wh_approve")],
             [daily, requests],
             [finance, salary],
             [reports, materials],
@@ -46,10 +47,11 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [language],
         ]
     elif role == Role.TOP_MANAGER:
-        # TOP menejer: hisobotlar + kundalik (yozish/ko'rish) + ball + web panel.
+        # TOP menejer: hisobotlar + kundalik + ball + web panel + doktor tasdig'i.
         rows = [
             [reports, daily],
             [doctors, pharmacies],
+            [t(lang, "btn_doctor_approve")],
             [finance, ball],
             [materials, webapp],
             [language],
@@ -81,10 +83,10 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [reports, language],
         ]
     elif role == Role.OPERATOR:
-        # Оператор: склад + doktor/dorixona tasdig'i + dorixonalar bo'limi (owner'nikiday).
+        # Оператор: склад + dorixona tasdig'i + dorixonalar bo'limi (doktor tasdig'i TOP'ga o'tdi).
         rows = [
             [t(lang, "btn_wh_approve")],
-            [t(lang, "btn_entity_approve")],
+            [t(lang, "btn_pharmacy_approve")],
             [pharmacies, language],
         ]
     elif role == Role.DOCTOR:

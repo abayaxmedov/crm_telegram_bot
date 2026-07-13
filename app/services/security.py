@@ -60,8 +60,13 @@ def creates_entity_approved(role: Role) -> bool:
     return role == Role.OWNER
 
 
-def can_approve_entities(role: Role) -> bool:
-    """Yangi doktor/dorixonani tasdiqlash: operator (va owner)."""
+def can_approve_doctors(role: Role) -> bool:
+    """Yangi doktorni tasdiqlash: TOP menejer (va owner)."""
+    return role in {Role.OWNER, Role.TOP_MANAGER}
+
+
+def can_approve_pharmacies(role: Role) -> bool:
+    """Yangi dorixonani tasdiqlash: operator (va owner)."""
     return role in {Role.OWNER, Role.OPERATOR}
 
 
