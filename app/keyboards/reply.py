@@ -66,17 +66,19 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [language],
         ]
     elif role == Role.REGIONAL_MANAGER:
-        # Regional menejer: o'z regioni + sotuv/sklad + ball.
+        # Regional menejer: o'z regioni + sotuv/sklad + ball + ЛПУ.
         rows = [
             [doctors, pharmacies],
+            [t(lang, "btn_lpu")],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
             [ball, reports],
             [materials, language],
         ]
     elif role == Role.MANAGER:
-        # Медвакил: kundalik/tashrif birlashgan (📖 Дневник olib tashlandi).
+        # Медвакил: kundalik/tashrif birlashgan; ЛПУ bo'limi qo'shildi.
         rows = [
             [doctors, pharmacies],
+            [t(lang, "btn_lpu")],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
             [ball, daily],
             [salary, materials],
@@ -159,6 +161,16 @@ def pharmacies_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
     else:
         rows.append([t(lang, "btn_pharmacies_list")])
     rows.append([t(lang, "btn_pharmacies_excel")])
+    rows.append([t(lang, "btn_menu")])
+    return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
+
+
+def lpu_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
+    rows = []
+    if can_add:
+        rows.append([t(lang, "btn_lpu_add"), t(lang, "btn_lpu_list")])
+    else:
+        rows.append([t(lang, "btn_lpu_list")])
     rows.append([t(lang, "btn_menu")])
     return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 

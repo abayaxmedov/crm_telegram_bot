@@ -13,14 +13,22 @@ from app.db.models import ApprovalStatus
 from app.db.repositories import (
     add_doctor,
     add_pharmacy,
+    get_lpu,
     get_region,
     list_doctors_visible,
+    list_lpus_in_region,
     list_pharmacies_visible,
     list_regions,
 )
 from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.keyboards.reply import doctors_menu, entities_inline, location_request_keyboard, pharmacies_menu
+from app.keyboards.reply import (
+    doctors_menu,
+    entities_inline,
+    inline_id_grid,
+    location_request_keyboard,
+    pharmacies_menu,
+)
 from app.services.excel import build_xlsx
 from app.services.listing import show_list
 from app.services.media import answer_media
@@ -41,6 +49,7 @@ class DoctorFlow(StatesGroup):
     category = State()
     notes = State()
     region = State()
+    lpu = State()
 
 
 class PharmacyFlow(StatesGroup):
@@ -138,7 +147,8 @@ async def doctor_notes(message: Message, session: AsyncSession, state: FSMContex
 
 
 @router.callback_query(DoctorFlow.region, F.data.startswith("doc_region:"))
-async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+async def doctor_pick_region(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Region tanlangach — shu regiondagi ЛПУ ro'yxati so'raladi."""
     user = await require_callback_user(callback, session)
     if user is None:
         return
@@ -149,7 +159,40 @@ async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: F
         return
     await callback.answer()
 
+    lpus = await list_lpus_in_region(session, region_id)
+    if not lpus:
+        # Bu regionda ЛПУ yo'q — avval ЛПУ yaratilishi kerak.
+        await state.clear()
+        await answer_media(
+            callback.message, screen="done", text=t(lang, "doctor_no_lpu_in_region"),
+            lang=lang, reply_markup=doctors_menu(lang, can_add=can_add_directories(user.role)),
+        )
+        return
+
+    await state.update_data(region_id=region_id)
+    await state.set_state(DoctorFlow.lpu)
+    rows = "\n".join(f"#{lp.id} | {safe(lp.name)}" for lp in lpus)
+    await callback.message.answer(
+        t(lang, "doctor_choose_lpu") + "\n\n" + rows,
+        reply_markup=inline_id_grid([lp.id for lp in lpus], "doc_lpu"),
+    )
+
+
+@router.callback_query(DoctorFlow.lpu, F.data.startswith("doc_lpu:"))
+async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    lpu_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
     data = await state.get_data()
+    region_id = data.get("region_id")
+    lpu = await get_lpu(session, lpu_id)
+    # Soxta callback'ga qarshi: ЛПУ tanlangan regionga tegishli bo'lishi shart.
+    if lpu is None or lpu.region_id != region_id:
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await callback.answer()
+
     status = ApprovalStatus.APPROVED if creates_entity_approved(user.role) else ApprovalStatus.PENDING
     doctor = await add_doctor(
         session,
@@ -160,6 +203,7 @@ async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: F
         manager=user,
         notes=data.get("notes"),
         region_id=region_id,
+        lpu_id=lpu_id,
         approval_status=status,
     )
     await session.commit()

@@ -19,11 +19,11 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus, Role
-from app.db.repositories import get_doctor_full, get_pharmacy_full, get_user_full
+from app.db.repositories import get_doctor_full, get_lpu_full, get_pharmacy_full, get_user_full
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import role_label, t
 from app.services.listing import get_spec, show_list
-from app.services.security import can_view_directories, can_view_pharmacies
+from app.services.security import can_manage_lpu, can_view_directories, can_view_pharmacies
 
 router = Router(name="listing")
 
@@ -123,6 +123,7 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
             lang, "doctor_card",
             id=doctor.id, name=escape(doctor.full_name), phone=safe(doctor.phone_number),
             region=safe(doctor.region.name if doctor.region else None),
+            lpu=safe(doctor.lpu.name if doctor.lpu else None),
             category=safe(doctor.class_category), location=safe(doctor.location_text),
             manager=safe(doctor.manager.full_name if doctor.manager else None),
             ball=int(doctor.ball_balance or 0),
@@ -176,5 +177,31 @@ async def user_card(callback: CallbackQuery, session: AsyncSession, lang: str) -
             phone=safe(target.phone_number),
             tg=target.telegram_id if target.telegram_id is not None else "—",
             ball=int(target.ball_balance or 0), active=active,
+        )
+    )
+
+
+@router.callback_query(F.data.startswith("lpu_info:"))
+async def lpu_card(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if not can_manage_lpu(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    lpu = await get_lpu_full(session, int((callback.data or "lpu_info:0").split(":", 1)[1]))
+    # Region-scope: regional/medvakil faqat o'z regioni ЛПУсини ko'radi.
+    if lpu is None or (
+        user.role in {Role.REGIONAL_MANAGER, Role.MANAGER} and lpu.region_id != user.region_id
+    ):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        t(
+            lang, "lpu_card",
+            id=lpu.id, name=escape(lpu.name),
+            region=safe(lpu.region.name if lpu.region else None),
+            address=safe(lpu.address), phone=safe(lpu.phone_number),
         )
     )

@@ -11,6 +11,7 @@ from app.handlers import (
     drugs_admin,
     finance,
     listing,
+    lpu,
     materials,
     operator,
     regions,
@@ -37,6 +38,7 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(ball.router)
     dp.include_router(webapp_link.router)
     dp.include_router(directories.router)
+    dp.include_router(lpu.router)
     dp.include_router(reports.router)
     dp.include_router(reports_view.router)
     dp.include_router(materials.router)

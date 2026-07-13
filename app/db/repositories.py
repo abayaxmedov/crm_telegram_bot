@@ -24,6 +24,7 @@ from app.db.models import (
     DrugMaterial,
     FinanceOperation,
     FinanceType,
+    Lpu,
     Pharmacy,
     Region,
     RepPayment,
@@ -175,6 +176,7 @@ async def add_doctor(
     manager: User,
     notes: str | None,
     region_id: int | None = None,
+    lpu_id: int | None = None,
     approval_status: ApprovalStatus = ApprovalStatus.PENDING,
 ) -> Doctor:
     doctor = Doctor(
@@ -185,6 +187,7 @@ async def add_doctor(
         manager_id=manager.id,
         notes=notes,
         region_id=region_id,
+        lpu_id=lpu_id,
         approval_status=approval_status,
         created_by_id=manager.id,
     )
@@ -521,11 +524,65 @@ async def get_doctor_with_user(session: AsyncSession, doctor_id: int) -> Doctor 
 
 
 async def get_doctor_full(session: AsyncSession, doctor_id: int) -> Doctor | None:
-    """Doktor + region + masъул (detail karta uchun)."""
+    """Doktor + region + masъул + ЛПУ (detail karta uchun)."""
     result = await session.execute(
         select(Doctor)
-        .options(selectinload(Doctor.region), selectinload(Doctor.manager))
+        .options(selectinload(Doctor.region), selectinload(Doctor.manager), selectinload(Doctor.lpu))
         .where(Doctor.id == doctor_id)
+    )
+    return result.scalar_one_or_none()
+
+
+# ==================== ЛПУ (Davolash-profilaktika muassasasi) ====================
+
+
+async def add_lpu(
+    session: AsyncSession,
+    *,
+    name: str,
+    address: str | None,
+    phone_number: str | None,
+    creator: User,
+    region_id: int | None = None,
+) -> "Lpu":
+    lpu = Lpu(
+        name=name,
+        address=address,
+        phone_number=phone_number,
+        region_id=region_id,
+        created_by_id=creator.id,
+    )
+    session.add(lpu)
+    await session.flush()
+    await log_action(session, creator, "lpu_created", "lpu", str(lpu.id), name)
+    return lpu
+
+
+async def list_lpus_visible(session: AsyncSession, actor: User, limit: int = 200) -> list["Lpu"]:
+    """Rolga qarab ko'rinadigan ЛПУ: owner/top/product => hammasi; regional/medvakil => o'z regioni."""
+    query = select(Lpu).options(selectinload(Lpu.region)).order_by(desc(Lpu.created_at)).limit(limit)
+    if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+        query = query.where(Lpu.region_id == actor.region_id)
+    elif actor.role not in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
+        return []
+    return list((await session.execute(query)).scalars())
+
+
+async def list_lpus_in_region(session: AsyncSession, region_id: int | None, limit: int = 200) -> list["Lpu"]:
+    """Berilgan regiondagi ЛПУ ro'yxati (doktor yaratishда tanlash uchun)."""
+    query = select(Lpu).order_by(Lpu.name).limit(limit)
+    if region_id is not None:
+        query = query.where(Lpu.region_id == region_id)
+    return list((await session.execute(query)).scalars())
+
+
+async def get_lpu(session: AsyncSession, lpu_id: int) -> "Lpu | None":
+    return (await session.execute(select(Lpu).where(Lpu.id == lpu_id))).scalar_one_or_none()
+
+
+async def get_lpu_full(session: AsyncSession, lpu_id: int) -> "Lpu | None":
+    result = await session.execute(
+        select(Lpu).options(selectinload(Lpu.region)).where(Lpu.id == lpu_id)
     )
     return result.scalar_one_or_none()
 

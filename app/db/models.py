@@ -156,6 +156,8 @@ class Doctor(Base, TimestampMixin):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     # Ierarxik ko'rish + operator tasdig'i uchun.
     region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
+    # Doktor biriktirilgan ЛПУ (Davolash-profilaktika muassasasi).
+    lpu_id: Mapped[int | None] = mapped_column(ForeignKey("lpus.id", ondelete="SET NULL"), index=True)
     approval_status: Mapped[ApprovalStatus] = mapped_column(
         enum_type(ApprovalStatus),
         default=ApprovalStatus.PENDING,
@@ -166,6 +168,7 @@ class Doctor(Base, TimestampMixin):
 
     manager: Mapped[User | None] = relationship(foreign_keys=[manager_id])
     region: Mapped[Region | None] = relationship()
+    lpu: Mapped["Lpu | None"] = relationship()
     created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
     bot_user: Mapped[User | None] = relationship(foreign_keys=[user_id])
 
@@ -198,6 +201,25 @@ class Pharmacy(Base, TimestampMixin):
     region: Mapped[Region | None] = relationship()
 
     contracts: Mapped[list["Contract"]] = relationship(back_populates="pharmacy")
+
+
+class Lpu(Base, TimestampMixin):
+    """ЛПУ — Davolash-profilaktika muassasasi (klinika/shifoxona/poliklinika).
+
+    Regional menejer va medvakil yaratadi; doktor yaratishда doktor shu ЛПУга
+    biriktiriladi. Region bo'yicha ko'rinadi (yaratuvchи regioniga bog'lanadi)."""
+
+    __tablename__ = "lpus"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    address: Mapped[str | None] = mapped_column(String(500))
+    phone_number: Mapped[str | None] = mapped_column(String(64))
+    region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    region: Mapped[Region | None] = relationship()
+    created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
 
 
 class DailyReport(Base, TimestampMixin):

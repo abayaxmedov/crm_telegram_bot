@@ -38,6 +38,7 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     add("doctors", "created_by_id", "created_by_id INTEGER")
     add("doctors", "ball_balance", "ball_balance INTEGER DEFAULT 0")
     add("doctors", "user_id", "user_id INTEGER")
+    add("doctors", "lpu_id", "lpu_id INTEGER")
     add("pharmacies", "inn", "inn VARCHAR(32)")
     add("pharmacies", "filial", "filial VARCHAR(120)")
     add("pharmacies", "region_id", "region_id INTEGER")

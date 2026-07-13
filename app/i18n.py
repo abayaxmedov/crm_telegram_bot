@@ -1063,6 +1063,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "🆔 #{id}\n"
             "📞 {phone}\n"
             "🌐 {region}\n"
+            "🏥 ЛПУ: {lpu}\n"
             "🏷 {category}\n"
             "📍 {location}\n"
             "👤 {manager}\n"
@@ -1073,11 +1074,45 @@ STRINGS: dict[str, dict[str, str]] = {
             "🆔 #{id}\n"
             "📞 {phone}\n"
             "🌐 {region}\n"
+            "🏥 ЛПУ: {lpu}\n"
             "🏷 {category}\n"
             "📍 {location}\n"
             "👤 {manager}\n"
             "💠 Балл: {ball}"
         ),
+    },
+    # ================= ЛПУ (Davolash-profilaktika muassasasi) =================
+    "btn_lpu": {UZ_CYRL: "🏥 ЛПУ", RU: "🏥 ЛПУ"},
+    "lpu_text": {
+        UZ_CYRL: "🏥 ЛПУ (Даволаш-профилактика муассасаси) бўлими:",
+        RU: "🏥 ЛПУ (лечебно-профилактическое учреждение):",
+    },
+    "btn_lpu_add": {UZ_CYRL: "➕ ЛПУ қўшиш", RU: "➕ Добавить ЛПУ"},
+    "btn_lpu_list": {UZ_CYRL: "📋 ЛПУ рўйхати", RU: "📋 Список ЛПУ"},
+    "lpus_header": {UZ_CYRL: "🏥 ЛПУ рўйхати:", RU: "🏥 Список ЛПУ:"},
+    "lpus_empty": {UZ_CYRL: "Ҳали ЛПУ йўқ.", RU: "Пока нет ЛПУ."},
+    "enter_lpu_name": {UZ_CYRL: "ЛПУ номини киритинг:", RU: "Введите название ЛПУ:"},
+    "enter_lpu_address": {
+        UZ_CYRL: "Манзилни киритинг (ёки <code>-</code>):",
+        RU: "Введите адрес (или <code>-</code>):",
+    },
+    "enter_lpu_phone": {
+        UZ_CYRL: "Телефон рақамини киритинг (ёки <code>-</code>):",
+        RU: "Введите номер телефона (или <code>-</code>):",
+    },
+    "lpu_name_too_short": {UZ_CYRL: "ЛПУ номи жуда қисқа.", RU: "Название ЛПУ слишком короткое."},
+    "lpu_saved": {UZ_CYRL: "✅ ЛПУ сақланди: #{id} — {name}", RU: "✅ ЛПУ сохранено: #{id} — {name}"},
+    "lpu_card": {
+        UZ_CYRL: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}\n📞 {phone}",
+        RU: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}\n📞 {phone}",
+    },
+    "doctor_choose_lpu": {
+        UZ_CYRL: "🏥 Докторни қайси ЛПУга бириктирамиз? ID тугмасини танланг:",
+        RU: "🏥 К какому ЛПУ привязать врача? Нажмите ID:",
+    },
+    "doctor_no_lpu_in_region": {
+        UZ_CYRL: "⚠️ Бу регионда ЛПУ йўқ. Аввал 🏥 ЛПУ бўлимидан ЛПУ яратинг, сўнг докторни қўшинг.",
+        RU: "⚠️ В этом регионе нет ЛПУ. Сначала создайте ЛПУ в разделе 🏥 ЛПУ, затем добавьте врача.",
     },
     "user_card": {
         UZ_CYRL: (

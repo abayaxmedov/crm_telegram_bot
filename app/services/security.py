@@ -60,6 +60,11 @@ def creates_entity_approved(role: Role) -> bool:
     return role == Role.OWNER
 
 
+def can_manage_lpu(role: Role) -> bool:
+    """ЛПУ (Davolash-profilaktika muassasasi) ko'rish/yaratish: regional menejer va medvakil (+owner)."""
+    return role in {Role.OWNER, Role.REGIONAL_MANAGER, Role.MANAGER}
+
+
 def can_approve_doctors(role: Role) -> bool:
     """Yangi doktorni tasdiqlash: TOP menejer (va owner)."""
     return role in {Role.OWNER, Role.TOP_MANAGER}

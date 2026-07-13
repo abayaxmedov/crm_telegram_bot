@@ -30,6 +30,7 @@ from app.db.repositories import (
     list_active_drugs,
     list_all_drugs,
     list_doctors_visible,
+    list_lpus_visible,
     list_materials,
     list_pharmacies_visible,
     list_report_authors,
@@ -327,6 +328,14 @@ def register_default_lists() -> None:
         fetch=lambda s, u, c: list_users(s, limit=5000),
         label=lambda x: x.full_name, row=_users_row,
         header_key="last_users", empty_key="no_users",
+    ))
+
+    # --- ЛПУ (regional/medvakil) ---
+    register_list(ListSpec(
+        key="lpu", pick_prefix="lpu_info",
+        fetch=lambda s, u, c: list_lpus_visible(s, u, limit=5000),
+        label=lambda x: x.name,
+        header_key="lpus_header", empty_key="lpus_empty",
     ))
 
 
