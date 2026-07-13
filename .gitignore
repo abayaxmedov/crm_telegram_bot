@@ -220,3 +220,9 @@ __marimo__/
 # Database backuplar — seed/dump fayllari serverga git orqali boradi.
 # Faqat log fayllar ignored (yuqorida *.log bor).
 backups/*.log
+
+# Loyiha jurnal fayllari (lokal kontekst — repога chiqmaydi)
+PROJECT_HISTORY.md
+ARCHITECTURE_DECISIONS.md
+CHANGELOG.md
+TODO.md
