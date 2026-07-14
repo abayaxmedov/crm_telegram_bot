@@ -130,10 +130,14 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
     await callback.answer()
+    bu = doctor.bot_user
+    tg = bu.telegram_id if bu and bu.telegram_id else "—"
+    username = f"@{escape(bu.username)}" if bu and bu.username else "—"
     await callback.message.answer(
         t(
             lang, "doctor_card",
             id=doctor.id, name=escape(doctor.full_name), phone=safe(doctor.phone_number),
+            tg=tg, username=username,
             region=safe(doctor.region.name if doctor.region else None),
             lpu=safe(doctor.lpu.name if doctor.lpu else None),
             category=safe(doctor.class_category), location=safe(doctor.location_text),

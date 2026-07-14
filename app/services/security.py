@@ -124,8 +124,8 @@ def can_add_finance_operation(role: Role) -> bool:
 
 
 def can_manage_drugs(role: Role) -> bool:
-    """Dori (tovar) narxi va ballini kiritish/tahrirlash: faqat owner."""
-    return role == Role.OWNER
+    """Dori (tovar) ma'lumotlarini (nom/narx/ball) yaratish/tahrirlash: PRODUCT menejer va owner."""
+    return role in {Role.OWNER, Role.PRODUCT_MANAGER}
 
 
 def can_record_sales(role: Role) -> bool:
@@ -134,8 +134,8 @@ def can_record_sales(role: Role) -> bool:
 
 
 def can_upload_materials(role: Role) -> bool:
-    """Dori materiallarini yuklash: PRODUCT menejer (va owner). TOP dan olib tashlangan."""
-    return role in {Role.OWNER, Role.PRODUCT_MANAGER}
+    """Dori materiallarini yuklash: faqat PRODUCT menejer (owner ham faqat ko'radi)."""
+    return role == Role.PRODUCT_MANAGER
 
 
 def can_view_materials(role: Role) -> bool:

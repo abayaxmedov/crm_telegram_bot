@@ -181,10 +181,6 @@ def _ph_label(p: Any) -> str:
     return p.name
 
 
-def _drug_row(d: Any, lang: str) -> str:
-    return f"#{d.id} | {escape(d.name)} ({t(lang, 'stock_short')}: {d.stock} | 💠 {int(d.ball or 0)})"
-
-
 def _sale_drug_row(d: Any, lang: str) -> str:
     # Dorixona qoldig'i (остаток) — list_pharmacy_stock `_pharmacy_qty` biriktiradi.
     qty = getattr(d, "_pharmacy_qty", 0)
@@ -197,7 +193,10 @@ def _drug_edit_row(d: Any, lang: str) -> str:
 
 def _doc_dir_row(d: Any, lang: str) -> str:
     phone = escape(str(d.phone_number)) if d.phone_number else "-"
-    return f"#{d.id} | {escape(d.full_name)} | {phone} | 💠 {int(d.ball_balance or 0)}"
+    bu = getattr(d, "bot_user", None)
+    tg = bu.telegram_id if bu and bu.telegram_id else "—"
+    uname = f"@{escape(bu.username)}" if bu and bu.username else "—"
+    return f"#{d.id} | {escape(d.full_name)} | {phone} | 🆔 {tg} | {uname} | 💠 {int(d.ball_balance or 0)}"
 
 
 def _ph_dir_row(p: Any, lang: str) -> str:
@@ -319,13 +318,6 @@ def register_default_lists() -> None:
         fetch=lambda s, u, c: list_all_drugs(s),
         label=lambda d: d.name, row=_drug_edit_row,
         header_key="drug_pick_edit", empty_key="drugs_empty",
-    ))
-    # Ombor kirim (owner) — dori tanlab ombor qoldig'iga qo'shadi. Row ombor (Drug.stock) ni ko'rsatadi.
-    register_list(ListSpec(
-        key="wh_intake", pick_prefix="whin",
-        fetch=lambda s, u, c: list_all_drugs(s),
-        label=lambda d: d.name, row=_drug_row,
-        header_key="wh_intake_pick", empty_key="drugs_empty",
     ))
 
     # --- Materiallar ---

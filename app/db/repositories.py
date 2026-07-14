@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import case, desc, func, or_, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -435,7 +435,11 @@ async def list_doctors_visible(session: AsyncSession, actor: User, limit: int = 
     owner/top/product => hammasi; regional/medvakil => o'z regioni."""
     query = (
         select(Doctor)
-        .options(selectinload(Doctor.region), selectinload(Doctor.manager))
+        .options(
+            selectinload(Doctor.region),
+            selectinload(Doctor.manager),
+            selectinload(Doctor.bot_user),
+        )
         .where(Doctor.approval_status == ApprovalStatus.APPROVED)
         .order_by(desc(Doctor.created_at))
         .limit(limit)
@@ -529,10 +533,15 @@ async def get_doctor_with_user(session: AsyncSession, doctor_id: int) -> Doctor 
 
 
 async def get_doctor_full(session: AsyncSession, doctor_id: int) -> Doctor | None:
-    """Doktor + region + masъул + ЛПУ (detail karta uchun)."""
+    """Doktor + region + masъул + ЛПУ + bot_user (detail karta uchun)."""
     result = await session.execute(
         select(Doctor)
-        .options(selectinload(Doctor.region), selectinload(Doctor.manager), selectinload(Doctor.lpu))
+        .options(
+            selectinload(Doctor.region),
+            selectinload(Doctor.manager),
+            selectinload(Doctor.lpu),
+            selectinload(Doctor.bot_user),
+        )
         .where(Doctor.id == doctor_id)
     )
     return result.scalar_one_or_none()
@@ -613,15 +622,7 @@ async def get_drug(session: AsyncSession, drug_id: int) -> Drug | None:
     return (await session.execute(select(Drug).where(Drug.id == drug_id))).scalar_one_or_none()
 
 
-# ==================== Ombor (Drug.stock) va dorixona (PharmacyStock) qoldig'i ====================
-
-
-async def add_warehouse_intake(session: AsyncSession, *, drug: Drug, quantity: int, actor: User) -> None:
-    """Omborga kirim — Drug.stock (ombor qoldig'i) ni oshiradi (owner)."""
-    await session.execute(
-        sa_update(Drug).where(Drug.id == drug.id).values(stock=Drug.stock + quantity)
-    )
-    await log_action(session, actor, "warehouse_intake", "drug", str(drug.id), f"+{quantity}")
+# ==================== Dorixona qoldig'i (PharmacyStock) — ombor CHEKSIZ, saqlanmaydi ====================
 
 
 async def get_pharmacy_stock_qty(session: AsyncSession, pharmacy_id: int, drug_id: int) -> int:
@@ -820,30 +821,18 @@ async def get_warehouse_request(session: AsyncSession, request_id: int) -> Wareh
 
 async def set_warehouse_status(
     session: AsyncSession, *, request: WarehouseRequest, status: WarehouseStatus, operator: User
-) -> bool:
-    """Zayavka holatini o'zgartiradi. APPROVED bo'lsa: OMBORдан ayiriladi (Drug.stock),
-    tanlangan APTEKA qoldig'iga qo'shiladi. Omborда yetmasa — False qaytaradi (tasdiqlanmaydi)."""
-    if status == WarehouseStatus.APPROVED:
-        if request.pharmacy_id is None:
-            return False
-        # Avval barcha pozitsiyalar uchun omborda yetarli qoldiq borligini tekshiramiz.
+) -> None:
+    """Zayavka holatini o'zgartiradi. APPROVED bo'lsa tanlangan APTEKA qoldig'iga qo'shiladi.
+
+    Ombor CHEKSIZ — chegara yo'q, ombor qoldig'i saqlanmaydi. So'ralgan miqdor
+    to'liq aptekaga yetkaziladi."""
+    if status == WarehouseStatus.APPROVED and request.pharmacy_id is not None:
         for item in request.items:
-            drug = await get_drug(session, item.drug_id)
-            if drug is None or int(drug.stock or 0) < item.quantity:
-                return False
-        # Ombordan ayiramiz (atomik) + aptekaga qo'shamiz.
-        for item in request.items:
-            await session.execute(
-                sa_update(Drug)
-                .where(Drug.id == item.drug_id)
-                .values(stock=case((Drug.stock >= item.quantity, Drug.stock - item.quantity), else_=0))
-            )
             await bump_pharmacy_stock(
                 session, pharmacy_id=request.pharmacy_id, drug_id=item.drug_id, delta=item.quantity
             )
     request.status = status
     await log_action(session, operator, "warehouse_status_changed", "warehouse_request", str(request.id), status.value)
-    return True
 
 
 async def pay_doctor_bonus(session: AsyncSession, *, rep: User, doctor: Doctor, amount: Decimal) -> None:

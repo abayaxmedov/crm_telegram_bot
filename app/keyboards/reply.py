@@ -33,7 +33,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     webapp = t(lang, "btn_webapp")
 
     if role == Role.OWNER:
-        # Owner — cheklovsiz: barcha bo'limlar ochiq (jumladan tasdiqlash).
+        # Owner: dori katalogини (🧪) boshqaradi; material yuklash PRODUCT menejerда, owner faqat ko'radi.
         rows = [
             [admin, regions],
             [doctors, pharmacies],
@@ -43,8 +43,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [daily, requests],
             [finance, salary],
             [reports, materials],
-            [material_upload, webapp],
-            [language],
+            [webapp, language],
         ]
     elif role == Role.TOP_MANAGER:
         # TOP menejer: hisobotlar + kundalik + ball + web panel + doktor tasdig'i.
@@ -57,13 +56,13 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [language],
         ]
     elif role == Role.PRODUCT_MANAGER:
-        # Product menejer: materiallar + hisobotlar + kundalik.
+        # Product menejer: dori katalogи (🧪) + material yuklash + hisobotlar + kundalik.
         rows = [
-            [material_upload, materials],
-            [reports, daily],
-            [doctors, pharmacies],
-            [finance, webapp],
-            [language],
+            [drugs, material_upload],
+            [materials, reports],
+            [daily, doctors],
+            [pharmacies, finance],
+            [webapp, language],
         ]
     elif role == Role.REGIONAL_MANAGER:
         # Regional menejer: o'z regioni + sotuv/sklad + ball + ЛПУ.
@@ -199,7 +198,7 @@ def drugs_menu(lang: str) -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
             [t(lang, "btn_drug_add"), t(lang, "btn_drugs_list")],
-            [t(lang, "btn_drug_edit"), t(lang, "btn_warehouse_intake")],
+            [t(lang, "btn_drug_edit")],
             [t(lang, "btn_menu")],
         ],
         placeholder=t(lang, "ph_select_section"),

@@ -944,28 +944,11 @@ STRINGS: dict[str, dict[str, str]] = {
     "drugs_header": {UZ_CYRL: "<b>Препаратлар</b>", RU: "<b>Препараты</b>"},
     "drug_pick_edit": {UZ_CYRL: "Ўзгартириш учун препаратни танланг:", RU: "Выберите препарат для изменения:"},
     "drug_row": {
-        UZ_CYRL: "#{id} | {name} | Нарх: {price} | Балл: {ball} | Қолдиқ: {stock}",
-        RU: "#{id} | {name} | Цена: {price} | Балл: {ball} | Остаток: {stock}",
+        UZ_CYRL: "#{id} | {name} | Нарх: {price} | Балл: {ball}",
+        RU: "#{id} | {name} | Цена: {price} | Балл: {ball}",
     },
 
-    # ================= Ombor kirim + qoldiqlar =================
-    "btn_warehouse_intake": {UZ_CYRL: "📦 Омбор кирими", RU: "📦 Приход на склад"},
-    "wh_intake_pick": {
-        UZ_CYRL: "📦 Омборга кирим — препаратни танланг (қавс ичида ҳозирги омбор қолдиғи):",
-        RU: "📦 Приход на склад — выберите препарат (в скобках текущий остаток склада):",
-    },
-    "enter_intake_qty": {
-        UZ_CYRL: "📦 {name} — ҳозирги омбор қолдиғи: {stock}\nОмборга КЕЛГАН миқдорни киритинг:",
-        RU: "📦 {name} — текущий остаток склада: {stock}\nВведите ПРИБЫВШЕЕ количество на склад:",
-    },
-    "wh_intake_done": {
-        UZ_CYRL: "✅ Омборга кирим: {name} +{qty}. Янги омбор қолдиғи: {stock}.",
-        RU: "✅ Приход на склад: {name} +{qty}. Новый остаток склада: {stock}.",
-    },
-    "wh_not_enough_stock": {
-        UZ_CYRL: "⚠️ Омборда етарли қолдиқ йўқ. Заявка тасдиқланмади. Аввал омборга кирим қилинг.",
-        RU: "⚠️ На складе недостаточно остатка. Заявка не подтверждена. Сначала оформите приход.",
-    },
+    # ================= Dorixona qoldig'i (ombor cheksiz — saqlanmaydi) =================
     "btn_pharmacy_stock": {UZ_CYRL: "💊 Дори қолдиғи", RU: "💊 Остаток товара"},
     "pharmacy_stock_header": {
         UZ_CYRL: "💊 <b>{name}</b> — дори қолдиғи (остаток):",
@@ -1123,6 +1106,8 @@ STRINGS: dict[str, dict[str, str]] = {
             "🧑‍⚕️ <b>{name}</b>\n"
             "🆔 #{id}\n"
             "📞 {phone}\n"
+            "💬 TG: {tg}\n"
+            "🔗 {username}\n"
             "🌐 {region}\n"
             "🏥 ЛПУ: {lpu}\n"
             "🏷 {category}\n"
@@ -1134,6 +1119,8 @@ STRINGS: dict[str, dict[str, str]] = {
             "🧑‍⚕️ <b>{name}</b>\n"
             "🆔 #{id}\n"
             "📞 {phone}\n"
+            "💬 TG: {tg}\n"
+            "🔗 {username}\n"
             "🌐 {region}\n"
             "🏥 ЛПУ: {lpu}\n"
             "🏷 {category}\n"

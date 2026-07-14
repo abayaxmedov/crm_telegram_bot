@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.repositories import add_drug, add_warehouse_intake, get_drug, list_all_drugs, update_drug
+from app.db.repositories import add_drug, get_drug, list_all_drugs, update_drug
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
 from app.keyboards.reply import drugs_menu
@@ -33,10 +33,6 @@ class DrugEditFlow(StatesGroup):
     ball = State()
 
 
-class WhIntakeFlow(StatesGroup):
-    qty = State()
-
-
 def _parse_price(value: str | None) -> Decimal | None:
     try:
         amount = Decimal((value or "").replace(" ", "").replace(",", "."))
@@ -53,7 +49,6 @@ def _drug_line(lang: str, drug) -> str:
         name=safe(drug.name),
         price=f"{drug.price or 0:,.2f}",
         ball=int(drug.ball or 0),
-        stock=drug.stock,
     )
 
 
@@ -227,65 +222,5 @@ async def drug_edit_finish(message: Message, session: AsyncSession, state: FSMCo
             price=f"{drug.price:,.2f}",
             ball=int(drug.ball or 0),
         ),
-        reply_markup=drugs_menu(lang),
-    )
-
-
-# ==================== Ombor kirim (owner: Drug.stock ni oshiradi) ====================
-
-
-@router.message(F.text.in_(variants("btn_warehouse_intake")))
-async def wh_intake_start(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    user = await require_user(message, session)
-    if user is None:
-        return
-    if not can_manage_drugs(user.role):
-        await message.answer(t(lang, "no_perm_drugs"))
-        return
-    await show_list(message, session, user, lang, state, "wh_intake")
-
-
-@router.callback_query(F.data.startswith("whin:"))
-async def wh_intake_pick(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    user = await require_callback_user(callback, session)
-    if user is None:
-        return
-    if not can_manage_drugs(user.role):
-        await callback.answer(t(lang, "no_perm_drugs"), show_alert=True)
-        return
-    drug = await get_drug(session, int(callback.data.split(":", 1)[1]))
-    if drug is None:
-        await callback.answer()
-        return
-    await state.update_data(intake_drug_id=drug.id)
-    await state.set_state(WhIntakeFlow.qty)
-    await callback.message.answer(t(lang, "enter_intake_qty", name=escape(drug.name), stock=int(drug.stock or 0)))
-    await callback.answer()
-
-
-@router.message(WhIntakeFlow.qty)
-async def wh_intake_qty(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    user = await require_user(message, session)
-    if user is None:
-        await state.clear()
-        return
-    if not can_manage_drugs(user.role):
-        await state.clear()
-        return
-    raw = (message.text or "").strip()
-    if not raw.isdigit() or int(raw) <= 0:
-        await message.answer(t(lang, "qty_invalid"))
-        return
-    data = await state.get_data()
-    drug = await get_drug(session, data.get("intake_drug_id"))
-    if drug is None:
-        await state.clear()
-        return
-    await add_warehouse_intake(session, drug=drug, quantity=int(raw), actor=user)
-    await session.commit()
-    await state.clear()
-    new_stock = int(drug.stock or 0) + int(raw)
-    await message.answer(
-        t(lang, "wh_intake_done", name=escape(drug.name), qty=int(raw), stock=new_stock),
         reply_markup=drugs_menu(lang),
     )

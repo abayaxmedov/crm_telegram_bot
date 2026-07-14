@@ -58,6 +58,11 @@ async def cmd_start(
 
     current_user = await get_user_by_telegram_id(session, message.from_user.id)
     if current_user and current_user.is_active:
+        # Har start'da username'ni yangilab turamiz (Telegram'da o'zgargan bo'lishi mumkin;
+        # doktorlar ro'yxatida ko'rsatiladi).
+        if message.from_user.username != current_user.username:
+            current_user.username = message.from_user.username
+            await session.commit()
         # Til hali tanlanmagan bo'lsa avval tilni so'raymiz.
         if not current_user.language:
             await _show_language_picker(message)

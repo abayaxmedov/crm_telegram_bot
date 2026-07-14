@@ -88,11 +88,7 @@ async def _handle(callback: CallbackQuery, session: AsyncSession, lang: str, sta
     if request is None or request.status != WarehouseStatus.NEW:
         await callback.answer(t(lang, "wh_request_not_found"), show_alert=True)
         return
-    ok = await set_warehouse_status(session, request=request, status=status, operator=user)
-    if not ok:
-        # Omborда yetarli qoldiq yo'q — tasdiqlanmadi.
-        await callback.answer(t(lang, "wh_not_enough_stock"), show_alert=True)
-        return
+    await set_warehouse_status(session, request=request, status=status, operator=user)
     await session.commit()
     await callback.message.edit_text(_card(lang, request) + "\n\n" + t(lang, result_key, id=request.id))
     await callback.answer()
