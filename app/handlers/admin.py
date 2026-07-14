@@ -10,10 +10,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import Role
-from app.db.repositories import create_invited_user, get_region, list_regions, list_users
+from app.db.repositories import (
+    create_invited_user,
+    delete_user,
+    get_region,
+    get_user_full,
+    list_regions,
+    list_users,
+    set_user_active,
+)
 from app.handlers.utils import require_callback_user, require_user, user_line
 from app.i18n import role_label, t, variants
-from app.keyboards.reply import admin_menu, back_menu, entities_inline, role_inline_keyboard
+from app.keyboards.reply import (
+    admin_menu,
+    back_menu,
+    entities_inline,
+    role_inline_keyboard,
+    user_delete_confirm_keyboard,
+    user_manage_keyboard,
+)
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import ROLES_WITH_REGION, can_create_role
@@ -160,3 +175,79 @@ async def users_list(message: Message, session: AsyncSession, state: FSMContext,
         await message.answer(t(lang, "users_list_closed"))
         return
     await show_list(message, session, user, lang, state, "users")
+
+
+# ==================== Xodimni boshqarish (owner: faolsizlantirish / o'chirish) ====================
+
+
+async def _require_owner_target(callback: CallbackQuery, session: AsyncSession, lang: str):
+    """Owner ekanini + nishon foydalanuvchi mavjud + o'zi emasligini tekshiradi."""
+    owner = await require_callback_user(callback, session)
+    if owner is None:
+        return None, None
+    if owner.role != Role.OWNER:
+        await callback.answer(t(lang, "users_list_closed"), show_alert=True)
+        return None, None
+    target = await get_user_full(session, int((callback.data or "x:0").split(":", 1)[1]))
+    if target is None:
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return owner, None
+    if target.id == owner.id:
+        await callback.answer(t(lang, "user_cannot_self"), show_alert=True)
+        return owner, None
+    return owner, target
+
+
+@router.callback_query(F.data.startswith("user_toggle:"))
+async def user_toggle(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    new_active = not target.is_active
+    await set_user_active(session, user=target, active=new_active, actor=owner)
+    await session.commit()
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=user_manage_keyboard(lang, target.id, new_active))
+    except Exception:
+        pass
+    key = "user_activated" if new_active else "user_deactivated"
+    await callback.message.answer(t(lang, key, name=escape(target.full_name)))
+
+
+@router.callback_query(F.data.startswith("user_del:"))
+async def user_del_confirm(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, "user_delete_confirm", name=escape(target.full_name)),
+        reply_markup=user_delete_confirm_keyboard(lang, target.id),
+    )
+
+
+@router.callback_query(F.data.startswith("user_del_yes:"))
+async def user_del_yes(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    name = target.full_name
+    await delete_user(session, user=target, actor=owner)
+    await session.commit()
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(t(lang, "user_deleted", name=escape(name)))
+
+
+@router.callback_query(F.data.startswith("user_del_no:"))
+async def user_del_cancel(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(t(lang, "user_delete_cancelled"))

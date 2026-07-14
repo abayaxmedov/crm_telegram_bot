@@ -1463,6 +1463,24 @@ async def get_user_full(session: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def set_user_active(session: AsyncSession, *, user: User, active: bool, actor: User) -> None:
+    """Xodimni faolsizlantirish/faollashtirish (soft delete — tarix saqlanadi)."""
+    user.is_active = active
+    await session.flush()
+    await log_action(
+        session, actor, "user_activated" if active else "user_deactivated",
+        "user", str(user.id), user.full_name,
+    )
+
+
+async def delete_user(session: AsyncSession, *, user: User, actor: User) -> None:
+    """Xodimni BUTUNLAY o'chirish. FK CASCADE tufayli bog'liq sotuv/hisobot/oylik/
+    zayavkalar ham o'chadi (Postgres). Qaytarib bo'lmaydi."""
+    await log_action(session, actor, "user_deleted", "user", str(user.id), user.full_name)
+    await session.delete(user)
+    await session.flush()
+
+
 async def reports_by_author(
     session: AsyncSession,
     author_id: int,

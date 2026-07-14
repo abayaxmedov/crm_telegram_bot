@@ -165,6 +165,26 @@ def pharmacies_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
     return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 
 
+def user_manage_keyboard(lang: str, user_id: int, is_active: bool) -> InlineKeyboardMarkup:
+    """Xodim kartasi ostidagi boshqaruv (faqat owner): faolsizlantirish/o'chirish."""
+    toggle_key = "btn_user_deactivate" if is_active else "btn_user_activate"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, toggle_key), callback_data=f"user_toggle:{user_id}")],
+            [InlineKeyboardButton(text=t(lang, "btn_user_delete"), callback_data=f"user_del:{user_id}")],
+        ]
+    )
+
+
+def user_delete_confirm_keyboard(lang: str, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_user_delete_yes"), callback_data=f"user_del_yes:{user_id}")],
+            [InlineKeyboardButton(text=t(lang, "btn_cancel"), callback_data=f"user_del_no:{user_id}")],
+        ]
+    )
+
+
 def lpu_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
     rows = []
     if can_add:

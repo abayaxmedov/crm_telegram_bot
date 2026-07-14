@@ -22,6 +22,7 @@ from app.db.models import ApprovalStatus, Role
 from app.db.repositories import get_doctor_full, get_lpu_full, get_pharmacy_full, get_user_full
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import role_label, t
+from app.keyboards.reply import user_manage_keyboard
 from app.services.listing import get_spec, show_list
 from app.services.security import can_manage_lpu, can_view_directories, can_view_pharmacies
 
@@ -169,6 +170,8 @@ async def user_card(callback: CallbackQuery, session: AsyncSession, lang: str) -
         return
     await callback.answer()
     active = t(lang, "user_active") if target.is_active else t(lang, "user_inactive")
+    # Owner o'z hisobini boshqara olmaydi — tugmalar faqat boshqa xodimlarga.
+    markup = None if target.id == user.id else user_manage_keyboard(lang, target.id, target.is_active)
     await callback.message.answer(
         t(
             lang, "user_card",
@@ -177,7 +180,8 @@ async def user_card(callback: CallbackQuery, session: AsyncSession, lang: str) -
             phone=safe(target.phone_number),
             tg=target.telegram_id if target.telegram_id is not None else "—",
             ball=int(target.ball_balance or 0), active=active,
-        )
+        ),
+        reply_markup=markup,
     )
 
 
