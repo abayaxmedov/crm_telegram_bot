@@ -26,6 +26,7 @@ from app.db.models import (
     FinanceType,
     Lpu,
     Pharmacy,
+    PharmacyStock,
     Region,
     RepPayment,
     RepPaymentKind,
@@ -449,7 +450,7 @@ async def list_doctors_visible(session: AsyncSession, actor: User, limit: int = 
 async def list_pharmacies_visible(session: AsyncSession, actor: User, limit: int = 200) -> list[Pharmacy]:
     """Rolga qarab ko'rinadigan (APPROVED) dorixonalar.
 
-    owner/top/product/operator => hammasi; regional/medvakil => o'z regioni."""
+    owner/top/product/operator => hammasi; regional => o'z regioni; medvakil => faqat o'zi yaratgan."""
     query = (
         select(Pharmacy)
         .options(selectinload(Pharmacy.region), selectinload(Pharmacy.manager))
@@ -457,7 +458,9 @@ async def list_pharmacies_visible(session: AsyncSession, actor: User, limit: int
         .order_by(desc(Pharmacy.created_at))
         .limit(limit)
     )
-    if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+    if actor.role == Role.MANAGER:
+        query = query.where(Pharmacy.manager_id == actor.id)
+    elif actor.role == Role.REGIONAL_MANAGER:
         query = query.where(Pharmacy.region_id == actor.region_id)
     elif actor.role not in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.OPERATOR}:
         return []
@@ -492,7 +495,7 @@ async def search_pharmacies_visible(
 ) -> list[Pharmacy]:
     """INN (yoki nom) bo'yicha qidiruv — ko'rish ko'lami (region) bilan cheklangan.
 
-    regional/medvakil => faqat o'z regioni; owner/top/product/operator => hammasi."""
+    regional => o'z regioni; medvakil => faqat o'zi yaratgan; owner/top/product/operator => hammasi."""
     like = f"%{query.strip()}%"
     q = (
         select(Pharmacy)
@@ -504,7 +507,9 @@ async def search_pharmacies_visible(
         .order_by(desc(Pharmacy.created_at))
         .limit(limit)
     )
-    if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+    if actor.role == Role.MANAGER:
+        q = q.where(Pharmacy.manager_id == actor.id)
+    elif actor.role == Role.REGIONAL_MANAGER:
         q = q.where(Pharmacy.region_id == actor.region_id)
     elif actor.role not in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.OPERATOR}:
         return []
@@ -608,6 +613,67 @@ async def get_drug(session: AsyncSession, drug_id: int) -> Drug | None:
     return (await session.execute(select(Drug).where(Drug.id == drug_id))).scalar_one_or_none()
 
 
+# ==================== Ombor (Drug.stock) va dorixona (PharmacyStock) qoldig'i ====================
+
+
+async def add_warehouse_intake(session: AsyncSession, *, drug: Drug, quantity: int, actor: User) -> None:
+    """Omborga kirim — Drug.stock (ombor qoldig'i) ni oshiradi (owner)."""
+    await session.execute(
+        sa_update(Drug).where(Drug.id == drug.id).values(stock=Drug.stock + quantity)
+    )
+    await log_action(session, actor, "warehouse_intake", "drug", str(drug.id), f"+{quantity}")
+
+
+async def get_pharmacy_stock_qty(session: AsyncSession, pharmacy_id: int, drug_id: int) -> int:
+    """Dorixonadagi bitta dorining qoldig'i (остаток). Yo'q bo'lsa 0."""
+    val = (
+        await session.execute(
+            select(PharmacyStock.quantity).where(
+                PharmacyStock.pharmacy_id == pharmacy_id, PharmacyStock.drug_id == drug_id
+            )
+        )
+    ).scalar_one_or_none()
+    return int(val or 0)
+
+
+async def bump_pharmacy_stock(session: AsyncSession, *, pharmacy_id: int, drug_id: int, delta: int) -> None:
+    """Dorixona qoldig'ини delta ga o'zgartiradi (upsert; 0 dan past bo'lmaydi)."""
+    ps = (
+        await session.execute(
+            select(PharmacyStock).where(
+                PharmacyStock.pharmacy_id == pharmacy_id, PharmacyStock.drug_id == drug_id
+            )
+        )
+    ).scalar_one_or_none()
+    if ps is None:
+        ps = PharmacyStock(pharmacy_id=pharmacy_id, drug_id=drug_id, quantity=max(0, delta))
+        session.add(ps)
+    else:
+        ps.quantity = max(0, int(ps.quantity or 0) + delta)
+    await session.flush()
+
+
+async def list_pharmacy_stock(session: AsyncSession, pharmacy_id: int) -> list[Drug]:
+    """Dorixonada qoldig'i > 0 bo'lgan dorilar (Drug obyektiga `_pharmacy_qty` biriktiriladi)."""
+    rows = (
+        await session.execute(
+            select(Drug, PharmacyStock.quantity)
+            .join(PharmacyStock, PharmacyStock.drug_id == Drug.id)
+            .where(
+                PharmacyStock.pharmacy_id == pharmacy_id,
+                PharmacyStock.quantity > 0,
+                Drug.is_active.is_(True),
+            )
+            .order_by(Drug.name)
+        )
+    ).all()
+    result: list[Drug] = []
+    for drug, qty in rows:
+        drug._pharmacy_qty = int(qty)
+        result.append(drug)
+    return result
+
+
 async def create_sale(
     session: AsyncSession,
     *,
@@ -645,12 +711,9 @@ async def create_sale(
                 ball=ball,
             )
         )
-        # Atomik kamaytirish (parallel sotuvlarda lost-update bo'lmasligi uchun).
-        await session.execute(
-            sa_update(Drug)
-            .where(Drug.id == drug.id)
-            .values(stock=case((Drug.stock >= qty, Drug.stock - qty), else_=0))
-        )
+        # Sotuv tanlangan DORIXONA qoldig'ini kamaytiradi (ombor emas).
+        if pharmacy is not None:
+            await bump_pharmacy_stock(session, pharmacy_id=pharmacy.id, drug_id=drug.id, delta=-qty)
 
     sale.total_price = total_price
     sale.total_ball = total_ball
@@ -757,15 +820,30 @@ async def get_warehouse_request(session: AsyncSession, request_id: int) -> Wareh
 
 async def set_warehouse_status(
     session: AsyncSession, *, request: WarehouseRequest, status: WarehouseStatus, operator: User
-) -> None:
-    request.status = status
-    # Tasdiqlanganda склад қолдиғи тўлдирилади (буюртма бажарилди).
+) -> bool:
+    """Zayavka holatini o'zgartiradi. APPROVED bo'lsa: OMBORдан ayiriladi (Drug.stock),
+    tanlangan APTEKA qoldig'iga qo'shiladi. Omborда yetmasa — False qaytaradi (tasdiqlanmaydi)."""
     if status == WarehouseStatus.APPROVED:
+        if request.pharmacy_id is None:
+            return False
+        # Avval barcha pozitsiyalar uchun omborda yetarli qoldiq borligini tekshiramiz.
         for item in request.items:
             drug = await get_drug(session, item.drug_id)
-            if drug is not None:
-                drug.stock = drug.stock + item.quantity
+            if drug is None or int(drug.stock or 0) < item.quantity:
+                return False
+        # Ombordan ayiramiz (atomik) + aptekaga qo'shamiz.
+        for item in request.items:
+            await session.execute(
+                sa_update(Drug)
+                .where(Drug.id == item.drug_id)
+                .values(stock=case((Drug.stock >= item.quantity, Drug.stock - item.quantity), else_=0))
+            )
+            await bump_pharmacy_stock(
+                session, pharmacy_id=request.pharmacy_id, drug_id=item.drug_id, delta=item.quantity
+            )
+    request.status = status
     await log_action(session, operator, "warehouse_status_changed", "warehouse_request", str(request.id), status.value)
+    return True
 
 
 async def pay_doctor_bonus(session: AsyncSession, *, rep: User, doctor: Doctor, amount: Decimal) -> None:

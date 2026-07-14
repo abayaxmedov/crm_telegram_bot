@@ -33,11 +33,12 @@ from app.db.repositories import (
     list_lpus_visible,
     list_materials,
     list_pharmacies_visible,
+    list_pharmacy_stock,
     list_report_authors,
     list_users,
 )
 from app.i18n import role_label, t
-from app.services.security import ball_transfer_target_role
+from app.services.security import OWNER_BALL_TARGET_ROLES, ball_transfer_target_role
 
 PAGE_SIZE = 10
 PER_ROW = 5
@@ -170,6 +171,10 @@ async def show_list(
 # ==================== Standart ro'yxatlar ====================
 
 
+async def _empty() -> list:
+    return []
+
+
 def _ph_label(p: Any) -> str:
     if getattr(p, "filial", None):
         return f"{p.name} (Филиал: {p.filial})"
@@ -178,6 +183,12 @@ def _ph_label(p: Any) -> str:
 
 def _drug_row(d: Any, lang: str) -> str:
     return f"#{d.id} | {escape(d.name)} ({t(lang, 'stock_short')}: {d.stock} | 💠 {int(d.ball or 0)})"
+
+
+def _sale_drug_row(d: Any, lang: str) -> str:
+    # Dorixona qoldig'i (остаток) — list_pharmacy_stock `_pharmacy_qty` biriktiradi.
+    qty = getattr(d, "_pharmacy_qty", 0)
+    return f"#{d.id} | {escape(d.name)} ({t(lang, 'stock_short')}: {qty} | 💠 {int(d.ball or 0)})"
 
 
 def _drug_edit_row(d: Any, lang: str) -> str:
@@ -199,22 +210,34 @@ def _ph_dir_row(p: Any, lang: str) -> str:
 
 
 async def _fetch_ball_users(session: AsyncSession, user: User, ctx: dict) -> list[User]:
-    target_role = ball_transfer_target_role(user.role)
-    if target_role is None:
-        return []
     query = (
         select(User)
         .options(selectinload(User.region))
-        .where(User.role == target_role, User.is_active.is_(True), User.telegram_id.is_not(None))
+        .where(User.is_active.is_(True), User.telegram_id.is_not(None))
         .order_by(User.full_name)
     )
-    if user.role == Role.REGIONAL_MANAGER:
-        query = query.where(User.region_id == user.region_id)
+    if user.role == Role.OWNER:
+        # Owner HAMMAGA yuboradi (barcha ball ishtirokchи menejerlar).
+        query = query.where(User.role.in_(OWNER_BALL_TARGET_ROLES))
+    else:
+        target_role = ball_transfer_target_role(user.role)
+        if target_role is None:
+            return []
+        query = query.where(User.role == target_role)
+        if user.role == Role.REGIONAL_MANAGER:
+            query = query.where(User.region_id == user.region_id)
     return list((await session.execute(query)).scalars())
 
 
 def _ball_user_label(u: Any) -> str:
     return u.full_name + (f" ({u.region.name})" if getattr(u, "region", None) else "")
+
+
+def _ball_user_row(u: Any, lang: str) -> str:
+    text = f"#{u.id} | {escape(u.full_name)} | {role_label(lang, u.role)}"
+    if getattr(u, "region", None):
+        text += f" | {escape(u.region.name)}"
+    return text
 
 
 def _users_row(u: Any, lang: str) -> str:
@@ -280,9 +303,10 @@ def register_default_lists() -> None:
     # --- Dorilar ---
     register_list(ListSpec(
         key="sale_drug", pick_prefix="sale_drug",
-        fetch=lambda s, u, c: list_active_drugs(s),
-        label=lambda d: d.name, row=_drug_row,
-        header_key="sales_choose_drug", empty_key="sales_no_drugs",
+        # Faqat tanlangan dorixonaда qoldig'i bor dorilar (остаток bilan).
+        fetch=lambda s, u, c: list_pharmacy_stock(s, c["pharmacy_id"]) if c.get("pharmacy_id") else _empty(),
+        label=lambda d: d.name, row=_sale_drug_row,
+        header_key="sales_choose_drug", empty_key="sales_no_pharmacy_stock",
     ))
     register_list(ListSpec(
         key="wh_drug", pick_prefix="wh_drug",
@@ -296,6 +320,13 @@ def register_default_lists() -> None:
         label=lambda d: d.name, row=_drug_edit_row,
         header_key="drug_pick_edit", empty_key="drugs_empty",
     ))
+    # Ombor kirim (owner) — dori tanlab ombor qoldig'iga qo'shadi. Row ombor (Drug.stock) ni ko'rsatadi.
+    register_list(ListSpec(
+        key="wh_intake", pick_prefix="whin",
+        fetch=lambda s, u, c: list_all_drugs(s),
+        label=lambda d: d.name, row=_drug_row,
+        header_key="wh_intake_pick", empty_key="drugs_empty",
+    ))
 
     # --- Materiallar ---
     register_list(ListSpec(
@@ -308,7 +339,7 @@ def register_default_lists() -> None:
     # --- Ball qabul qiluvchilari (rol-asosli) ---
     register_list(ListSpec(
         key="ball_user", pick_prefix="ball_to_user",
-        fetch=_fetch_ball_users, label=_ball_user_label,
+        fetch=_fetch_ball_users, label=_ball_user_label, row=_ball_user_row,
         header_key="ball_choose_recipient", empty_key="ball_no_recipients",
     ))
 

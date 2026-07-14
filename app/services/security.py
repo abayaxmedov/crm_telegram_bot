@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.db.models import Role
+from app.db.models import Role, User
 
 
 # Rol nomlari app/i18n.py da (role_label) lokalizatsiya qilinadi.
@@ -63,6 +63,21 @@ def creates_entity_approved(role: Role) -> bool:
 def can_manage_lpu(role: Role) -> bool:
     """ЛПУ (Davolash-profilaktika muassasasi) ko'rish/yaratish: regional menejer va medvakil (+owner)."""
     return role in {Role.OWNER, Role.REGIONAL_MANAGER, Role.MANAGER}
+
+
+def pharmacy_visible_to(actor: User, pharmacy) -> bool:
+    """Dorixona actor ko'lamида ekanини tekshiradi (APPROVED holati alohida tekshiriladi).
+
+    owner/top/product/operator => hammasi;
+    regional menejer => o'z regioni (o'ziga tegishli);
+    medvakil => faqat o'zi yaratgan (manager_id == actor.id)."""
+    if actor.role in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.OPERATOR}:
+        return True
+    if actor.role == Role.REGIONAL_MANAGER:
+        return pharmacy.region_id == actor.region_id
+    if actor.role == Role.MANAGER:
+        return pharmacy.manager_id == actor.id
+    return False
 
 
 def can_approve_doctors(role: Role) -> bool:
@@ -137,13 +152,19 @@ def can_use_ball(role: Role) -> bool:
     return role in {Role.OWNER, Role.TOP_MANAGER, Role.REGIONAL_MANAGER, Role.MANAGER}
 
 
-def ball_transfer_target_role(role: Role) -> Role | None:
-    """Ball zanjiri: kim kimga o'tkaza oladi. None => o'tkaza olmaydi.
+# Owner ball (mint) yubora oladigan rollar — HAMMAGA (ball ishtirokchи menejerlar).
+OWNER_BALL_TARGET_ROLES: frozenset[Role] = frozenset(
+    {Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.REGIONAL_MANAGER, Role.MANAGER}
+)
 
-    owner -> TOP (mint, cheksiz); TOP -> regional; regional -> o'z regioni medvakillari;
-    medvakil -> doktor (alohida, doktor ro'yxati bilan ishlanadi)."""
+
+def ball_transfer_target_role(role: Role) -> Role | None:
+    """Ball zanjiri: kim kimga o'tkaza oladi (owner'дан tashqari). None => o'tkaza olmaydi.
+
+    owner -> HAMMAGA (OWNER_BALL_TARGET_ROLES, mint); TOP -> regional;
+    regional -> o'z regioni medvakillari; medvakil -> doktor (alohida ro'yxat bilan)."""
     return {
-        Role.OWNER: Role.TOP_MANAGER,
+        Role.OWNER: Role.TOP_MANAGER,  # legacy: owner uchun keng ro'yxat OWNER_BALL_TARGET_ROLES orqali
         Role.TOP_MANAGER: Role.REGIONAL_MANAGER,
         Role.REGIONAL_MANAGER: Role.MANAGER,
         Role.MANAGER: Role.DOCTOR,

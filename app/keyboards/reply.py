@@ -199,7 +199,7 @@ def drugs_menu(lang: str) -> ReplyKeyboardMarkup:
     return reply_keyboard(
         [
             [t(lang, "btn_drug_add"), t(lang, "btn_drugs_list")],
-            [t(lang, "btn_drug_edit")],
+            [t(lang, "btn_drug_edit"), t(lang, "btn_warehouse_intake")],
             [t(lang, "btn_menu")],
         ],
         placeholder=t(lang, "ph_select_section"),

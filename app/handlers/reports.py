@@ -32,7 +32,7 @@ from app.keyboards.reply import (
 )
 from app.services.listing import show_list
 from app.services.media import answer_media
-from app.services.security import REGION_SCOPED_REPORT_ROLES, reports_viewer_roles
+from app.services.security import REGION_SCOPED_REPORT_ROLES, pharmacy_visible_to, reports_viewer_roles
 
 router = Router(name="reports")
 
@@ -115,10 +115,17 @@ async def report_target_pick(callback: CallbackQuery, session: AsyncSession, sta
     if target_type == "doctor":
         entity = await get_doctor(session, target_id)
         name = entity.full_name if entity else None
+        ok = _target_in_scope(user, entity)
     else:
         entity = await get_pharmacy(session, target_id)
         name = entity.name if entity else None
-    if not _target_in_scope(user, entity):
+        # Dorixona: medvakil => faqat o'zi yaratgan; regional => o'z regioni.
+        ok = (
+            entity is not None
+            and entity.approval_status == ApprovalStatus.APPROVED
+            and pharmacy_visible_to(user, entity)
+        )
+    if not ok:
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
 

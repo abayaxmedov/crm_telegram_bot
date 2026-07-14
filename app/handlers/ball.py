@@ -43,7 +43,12 @@ from app.keyboards.reply import (
 from app.services.excel import build_xlsx
 from app.services.listing import show_list
 from app.services.notify import DOCTOR_MESSAGE_TTL, send_to_doctor
-from app.services.security import ball_transfer_target_role, can_use_ball, can_view_hierarchy_reports
+from app.services.security import (
+    OWNER_BALL_TARGET_ROLES,
+    ball_transfer_target_role,
+    can_use_ball,
+    can_view_hierarchy_reports,
+)
 
 router = Router(name="ball")
 
@@ -55,9 +60,11 @@ class BallSendFlow(StatesGroup):
 def _valid_user_target(sender: User, target: User | None) -> bool:
     """Zanjir qoidasi: callback_data soxtalashtirilishiga qarshi qat'iy tekshiruv.
 
-    owner->TOP, TOP->regional, regional->o'z regioni medvakili. Aks holda rad."""
+    owner->HAMMAGA (menejerlar), TOP->regional, regional->o'z regioni medvakili. Aks holda rad."""
     if target is None or not target.is_active or target.telegram_id is None:
         return False
+    if sender.role == Role.OWNER:
+        return target.role in OWNER_BALL_TARGET_ROLES
     if target.role != ball_transfer_target_role(sender.role):
         return False
     if sender.role == Role.REGIONAL_MANAGER and target.region_id != sender.region_id:

@@ -15,16 +15,27 @@ from html import escape
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus, Role
-from app.db.repositories import get_doctor_full, get_lpu_full, get_pharmacy_full, get_user_full
+from app.db.repositories import (
+    get_doctor_full,
+    get_lpu_full,
+    get_pharmacy_full,
+    get_user_full,
+    list_pharmacy_stock,
+)
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import role_label, t
 from app.keyboards.reply import user_manage_keyboard
 from app.services.listing import get_spec, show_list
-from app.services.security import can_manage_lpu, can_view_directories, can_view_pharmacies
+from app.services.security import (
+    can_manage_lpu,
+    can_view_directories,
+    can_view_pharmacies,
+    pharmacy_visible_to,
+)
 
 router = Router(name="listing")
 
@@ -141,10 +152,15 @@ async def pharmacy_card(callback: CallbackQuery, session: AsyncSession, lang: st
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
     pharmacy = await get_pharmacy_full(session, int((callback.data or "ph_info:0").split(":", 1)[1]))
-    if not _entity_in_scope(user, pharmacy, operator_ok=True):
+    if pharmacy is None or pharmacy.approval_status != ApprovalStatus.APPROVED or not pharmacy_visible_to(user, pharmacy):
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
     await callback.answer()
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_pharmacy_stock"), callback_data=f"ph_stock:{pharmacy.id}")]
+        ]
+    )
     await callback.message.answer(
         t(
             lang, "pharmacy_card",
@@ -152,8 +168,35 @@ async def pharmacy_card(callback: CallbackQuery, session: AsyncSession, lang: st
             inn=safe(pharmacy.inn), phone=safe(pharmacy.phone_number),
             region=safe(pharmacy.region.name if pharmacy.region else None),
             responsible=safe(pharmacy.responsible_person), location=safe(pharmacy.location_text),
-        )
+        ),
+        reply_markup=kb,
     )
+
+
+@router.callback_query(F.data.startswith("ph_stock:"))
+async def pharmacy_stock_view(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if not can_view_pharmacies(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    pharmacy = await get_pharmacy_full(session, int((callback.data or "ph_stock:0").split(":", 1)[1]))
+    if pharmacy is None or (
+        pharmacy.approval_status != ApprovalStatus.APPROVED or not pharmacy_visible_to(user, pharmacy)
+    ):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await callback.answer()
+    stock = await list_pharmacy_stock(session, pharmacy.id)
+    header = t(lang, "pharmacy_stock_header", name=escape(pharmacy.name))
+    if not stock:
+        await callback.message.answer(header + "\n\n" + t(lang, "pharmacy_stock_empty"))
+        return
+    rows = "\n".join(
+        t(lang, "pharmacy_stock_row", name=escape(d.name), qty=getattr(d, "_pharmacy_qty", 0)) for d in stock
+    )
+    await callback.message.answer(header + "\n\n" + rows)
 
 
 @router.callback_query(F.data.startswith("user_info:"))

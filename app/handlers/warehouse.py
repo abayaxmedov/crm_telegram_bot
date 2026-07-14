@@ -34,6 +34,7 @@ from app.keyboards.reply import (
 )
 from app.services.listing import show_list
 from app.services.media import answer_media
+from app.services.security import pharmacy_visible_to
 
 router = Router(name="warehouse")
 
@@ -57,12 +58,11 @@ async def _require_wh_user(callback: CallbackQuery, session: AsyncSession, lang:
 
 
 def _pharmacy_in_scope(user: User, pharmacy: Pharmacy | None) -> bool:
-    """Tanlangan apteka APPROVED va sotuvchining regionida bo'lishi shart."""
+    """Tanlangan apteka APPROVED va sotuvchi ko'lamида bo'lishi shart
+    (medvakil => faqat o'zi yaratgan; regional => o'z regioni)."""
     if pharmacy is None or pharmacy.approval_status != ApprovalStatus.APPROVED:
         return False
-    if user.role == Role.OWNER:
-        return True
-    return pharmacy.region_id == user.region_id
+    return pharmacy_visible_to(user, pharmacy)
 
 
 def _ph_label(pharmacy: Pharmacy) -> str:

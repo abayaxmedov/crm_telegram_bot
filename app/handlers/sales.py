@@ -21,6 +21,7 @@ from app.db.repositories import (
     get_doctor_with_user,
     get_drug,
     get_pharmacy,
+    get_pharmacy_stock_qty,
 )
 from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user
@@ -29,7 +30,7 @@ from app.keyboards.reply import main_menu, sale_cart_keyboard
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.notify import send_to_doctor
-from app.services.security import can_record_sales
+from app.services.security import can_record_sales, pharmacy_visible_to
 
 router = Router(name="sales")
 
@@ -74,7 +75,9 @@ def _cart_text(lang: str, cart: list[dict]) -> str:
 
 
 async def _send_drug_choice(message: Message, session: AsyncSession, user: User, lang: str, state: FSMContext) -> None:
-    await show_list(message, session, user, lang, state, "sale_drug")
+    data = await state.get_data()
+    # Faqat shu dorixonaда qoldig'i bor dorilar (остаток bilan) ko'rsatiladi.
+    await show_list(message, session, user, lang, state, "sale_drug", ctx={"pharmacy_id": data.get("pharmacy_id")})
 
 
 @router.message(F.text.in_(variants("btn_sales")), RoleFilter(*SELLER_ROLES))
@@ -92,8 +95,9 @@ async def sale_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, sta
     if rep is None:
         return
     pharmacy = await get_pharmacy(session, int(callback.data.split(":", 1)[1]))
-    # Soxta callback'ga qarshi: dorixona APPROVED va sotuvchi regionida bo'lishi shart.
-    if not _entity_in_scope(rep, pharmacy):
+    # Soxta callback'ga qarshi: dorixona APPROVED va sotuvchi ko'lamида bo'lishi shart
+    # (medvakil => faqat o'zi yaratgan; regional => o'z regioni).
+    if pharmacy is None or pharmacy.approval_status != ApprovalStatus.APPROVED or not pharmacy_visible_to(rep, pharmacy):
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
     await state.update_data(pharmacy_id=pharmacy.id, doctor_id=None, cart=[])
@@ -135,7 +139,8 @@ async def sale_pick_drug(callback: CallbackQuery, session: AsyncSession, state: 
         return
     await state.update_data(current_drug_id=drug.id)
     await state.set_state(SalesFlow.qty)
-    await callback.message.answer(t(lang, "sales_drug_info", name=drug.name, stock=drug.stock))
+    remain = await get_pharmacy_stock_qty(session, data["pharmacy_id"], drug.id)
+    await callback.message.answer(t(lang, "sales_drug_info", name=drug.name, stock=remain))
     await callback.answer()
 
 
@@ -156,10 +161,11 @@ async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, l
         await state.set_state(None)
         return
     cart = data.get("cart", [])
-    # Savatdagi shu dori pozitsiyalarini ham hisobga olib qoldiqni tekshiramiz.
+    # Dorixona qoldig'i (остаток) bo'yicha tekshiramiz (savatdagi shu dori qatorlari ham hisobga olinadi).
+    available = await get_pharmacy_stock_qty(session, data["pharmacy_id"], drug.id)
     already = sum(int(c["qty"]) for c in cart if c["drug_id"] == drug.id)
-    if qty + already > drug.stock:
-        await message.answer(t(lang, "qty_over_stock", stock=max(0, drug.stock - already)))
+    if qty + already > available:
+        await message.answer(t(lang, "qty_over_stock", stock=max(0, available - already)))
         return
 
     cart.append(

@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -220,6 +220,23 @@ class Lpu(Base, TimestampMixin):
 
     region: Mapped[Region | None] = relationship()
     created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
+
+
+class PharmacyStock(Base, TimestampMixin):
+    """Dorixonadagi dori qoldig'i (остаток) — ombor (Drug.stock) dan ALOHIDA.
+
+    Ombordan aptekaga berilganda (sklad zayavka tasdig'i) ko'payadi;
+    sotuvда kamayadi. Har (pharmacy, drug) juftlиги uchun bitta qator."""
+
+    __tablename__ = "pharmacy_stock"
+    __table_args__ = (UniqueConstraint("pharmacy_id", "drug_id", name="uq_pharmacy_drug_stock"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id", ondelete="CASCADE"), index=True)
+    drug_id: Mapped[int] = mapped_column(ForeignKey("drugs.id", ondelete="CASCADE"), index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    drug: Mapped["Drug"] = relationship()
 
 
 class DailyReport(Base, TimestampMixin):
