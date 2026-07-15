@@ -7,11 +7,20 @@ services:
       POSTGRES_PASSWORD: crm_bot
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Reboot/crash'dan keyin avtomatik ko'tariladi (ilgari yo'q edi -> bot ulanolmay qolgan).
+    restart: unless-stopped
+    # 1GB RAM host: bitta konteyner butun xotirani yeb host'ni qotirmasin.
+    mem_limit: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crm_bot -d crm_bot"]
       interval: 5s
       timeout: 3s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
@@ -19,11 +28,17 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    mem_limit: 192m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   bot:
     build: .
@@ -46,8 +61,20 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 400m
+    # Webapp porti ochiqmi -> jarayon tirik. Crash-loop avtomatik aniqlanadi.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('127.0.0.1',8080)); s.close(); sys.exit(0 if r==0 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
   redis_data:
-
