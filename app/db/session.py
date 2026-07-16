@@ -45,6 +45,12 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     add("pharmacies", "approval_status", "approval_status VARCHAR(20) DEFAULT 'approved'")
     add("drugs", "price", "price NUMERIC(14, 2) DEFAULT 0")
     add("drugs", "ball", "ball INTEGER DEFAULT 0")
+    # Apteka to'lov shartiga qarab ikki narx (100% to'liq / 50% bo'lib to'lash).
+    add("drugs", "price_100", "price_100 NUMERIC(14, 2) DEFAULT 0")
+    add("drugs", "price_50", "price_50 NUMERIC(14, 2) DEFAULT 0")
+    add("warehouse_requests", "payment_percent", "payment_percent INTEGER DEFAULT 100")
+    add("warehouse_request_items", "price", "price NUMERIC(14, 2) DEFAULT 0")
+    add("warehouse_request_items", "shipped_quantity", "shipped_quantity INTEGER DEFAULT 0")
     add("sale_items", "price", "price NUMERIC(14, 2) DEFAULT 0")
     add("sale_items", "ball", "ball INTEGER DEFAULT 0")
     add("sales", "total_price", "total_price NUMERIC(14, 2) DEFAULT 0")

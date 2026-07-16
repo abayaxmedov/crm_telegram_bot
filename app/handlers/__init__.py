@@ -23,6 +23,8 @@ from app.handlers import (
     sales,
     warehouse,
     webapp_link,
+    wholesale_income,
+    wholesalers,
 )
 
 
@@ -35,6 +37,7 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(admin.router)
     dp.include_router(regions.router)
     dp.include_router(drugs_admin.router)
+    dp.include_router(wholesalers.router)
     dp.include_router(ball.router)
     dp.include_router(webapp_link.router)
     dp.include_router(directories.router)
@@ -46,6 +49,7 @@ def setup_routers(dp: Dispatcher) -> None:
     # Sotuvchilar (medvakil + regional) — rep routerlar finance/salary/common'dan oldin.
     dp.include_router(sales.router)
     dp.include_router(warehouse.router)
+    dp.include_router(wholesale_income.router)
     dp.include_router(rep_finance.router)
     dp.include_router(operator.router)
     dp.include_router(finance.router)

@@ -9,20 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ApprovalStatus, Role, WarehouseRequest, WarehouseStatus
 from app.db.repositories import (
     approve_pharmacy_with_contract,
-    get_doctor,
     get_pharmacy,
     get_warehouse_request,
-    list_pending_doctors,
     list_pending_pharmacies,
     list_pending_warehouse_requests,
-    set_doctor_status,
     set_pharmacy_status,
     set_warehouse_status,
+    warehouse_request_total,
+    warehouse_shipped_total,
 )
 from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
-from app.services.security import can_approve_doctors, can_approve_pharmacies, can_approve_warehouse
+from app.services.approvals import entity_approve_keyboard
+from app.services.security import can_approve_pharmacies, can_approve_warehouse
 
 router = Router(name="operator")
 
@@ -37,8 +37,11 @@ def _card(lang: str, request: WarehouseRequest) -> str:
         pharmacy = request.pharmacy.name
         if request.pharmacy.filial:
             pharmacy += f" (Филиал: {request.pharmacy.filial})"
+    # Narxlar zayavka paytidagi to'lov shartи (100%/50%) bo'yicha snapshot qilingan.
     items = "\n".join(
-        f"{i}. {it.drug_name} — {it.quantity} {t(lang, 'pcs')}" for i, it in enumerate(request.items, 1)
+        f"{i}. {it.drug_name} — {it.quantity} {t(lang, 'pcs')} × {float(it.price or 0):,.2f}"
+        f" = {float((it.price or 0) * it.quantity):,.2f}"
+        for i, it in enumerate(request.items, 1)
     )
     return t(
         lang,
@@ -47,8 +50,10 @@ def _card(lang: str, request: WarehouseRequest) -> str:
         rep=request.rep.full_name if request.rep else "-",
         pharmacy=pharmacy,
         contract=contract,
+        percent=int(request.payment_percent or 100),
         date=str(request.created_at)[:16] if request.created_at else "-",
         items=items,
+        total=f"{float(warehouse_request_total(request)):,.2f}",
     )
 
 
@@ -77,58 +82,150 @@ async def wh_approve_list(message: Message, session: AsyncSession, lang: str) ->
         await message.answer(_card(lang, request), reply_markup=_approve_kb(lang, request.id))
 
 
-async def _handle(callback: CallbackQuery, session: AsyncSession, lang: str, status: WarehouseStatus, result_key: str) -> None:
+class WarehouseShipFlow(StatesGroup):
+    """Otgruzka: operator har preparat uchun jo'natilgan sonni kiritadi."""
+
+    qty = State()
+
+
+async def _wh_pending(callback: CallbackQuery, session: AsyncSession, lang: str):
+    """wh_ok/wh_reject uchun umumiy tekshiruv — NEW zayavkani qaytaradi."""
     user = await require_callback_user(callback, session)
     if user is None:
-        return
+        return None, None
     if not can_approve_warehouse(user.role):
         await callback.answer(t(lang, "section_closed"), show_alert=True)
-        return
+        return None, None
     request = await get_warehouse_request(session, int(callback.data.split(":", 1)[1]))
     if request is None or request.status != WarehouseStatus.NEW:
         await callback.answer(t(lang, "wh_request_not_found"), show_alert=True)
+        return None, None
+    return user, request
+
+
+def _ph_name(request: WarehouseRequest) -> str:
+    if request.pharmacy is None:
+        return "-"
+    name = request.pharmacy.name
+    if request.pharmacy.filial:
+        name += f" (Филиал: {request.pharmacy.filial})"
+    return name
+
+
+async def _ask_ship_qty(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Navbatdagi preparat uchun jo'natilgan sonni so'raydi; ro'yxat tugasa — yakunlaydi."""
+    data = await state.get_data()
+    queue: list[dict] = data.get("ship_queue") or []
+    index = int(data.get("ship_index") or 0)
+    if index >= len(queue):
+        await _finish_shipment(message, session, state, lang)
         return
-    await set_warehouse_status(session, request=request, status=status, operator=user)
+    entry = queue[index]
+    await state.set_state(WarehouseShipFlow.qty)
+    await message.answer(
+        t(
+            lang,
+            "wh_ship_ask",
+            index=index + 1,
+            count=len(queue),
+            name=safe(entry["name"]),
+            requested=entry["requested"],
+            pcs=t(lang, "pcs"),
+        )
+    )
+
+
+async def _finish_shipment(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    data = await state.get_data()
+    await state.clear()
+    user = await require_user(message, session)
+    if user is None or not can_approve_warehouse(user.role):
+        return
+    request = await get_warehouse_request(session, int(data.get("ship_request_id") or 0))
+    if request is None or request.status != WarehouseStatus.NEW:
+        await message.answer(t(lang, "wh_request_not_found"))
+        return
+    queue: list[dict] = data.get("ship_queue") or []
+    shipped = {int(e["item_id"]): int(e.get("shipped") or 0) for e in queue}
+    if not any(shipped.values()):
+        # Hech narsa jo'natilmagan bo'lsa zayavka NEW holida qoladi (rad etish alohida tugma).
+        await message.answer(t(lang, "wh_ship_nothing"))
+        return
+
+    await set_warehouse_status(
+        session, request=request, status=WarehouseStatus.APPROVED, operator=user, shipped=shipped
+    )
     await session.commit()
-    await callback.message.edit_text(_card(lang, request) + "\n\n" + t(lang, result_key, id=request.id))
-    await callback.answer()
+
+    detail = "\n".join(
+        f"{i}. {e['name']} — {t(lang, 'wh_ship_row', requested=e['requested'], shipped=int(e.get('shipped') or 0))}"
+        for i, e in enumerate(queue, 1)
+    )
+    await message.answer(
+        t(lang, "wh_ship_summary", detail=detail, total=f"{float(warehouse_shipped_total(request)):,.2f}")
+        + "\n\n"
+        + t(lang, "wh_approved", id=request.id)
+    )
 
 
 @router.callback_query(F.data.startswith("wh_ok:"))
-async def wh_ok(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    await _handle(callback, session, lang, WarehouseStatus.APPROVED, "wh_approved")
+async def wh_ok(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Tasdiqlash o'zi qoldiqni O'ZGARTIRMAYDI — avval otgruzka kiritiladi."""
+    user, request = await _wh_pending(callback, session, lang)
+    if request is None:
+        return
+    queue = [
+        {"item_id": it.id, "name": it.drug_name, "requested": int(it.quantity)} for it in request.items
+    ]
+    if not queue:
+        await callback.answer(t(lang, "wh_request_not_found"), show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(ship_request_id=request.id, ship_queue=queue, ship_index=0)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(t(lang, "wh_ship_intro", id=request.id, pharmacy=safe(_ph_name(request))))
+    await _ask_ship_qty(callback.message, session, state, lang)
+    await callback.answer()
+
+
+@router.message(WarehouseShipFlow.qty)
+async def wh_ship_qty(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await require_user(message, session)
+    if user is None or not can_approve_warehouse(user.role):
+        await state.clear()
+        return
+    raw = (message.text or "").strip()
+    if not raw.isdigit():
+        await message.answer(t(lang, "wh_ship_invalid"))
+        return
+    data = await state.get_data()
+    queue: list[dict] = data.get("ship_queue") or []
+    index = int(data.get("ship_index") or 0)
+    if index >= len(queue):
+        await state.clear()
+        return
+    queue[index]["shipped"] = int(raw)
+    await state.update_data(ship_queue=queue, ship_index=index + 1)
+    await state.set_state(None)
+    await _ask_ship_qty(message, session, state, lang)
 
 
 @router.callback_query(F.data.startswith("wh_reject:"))
-async def wh_reject(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
-    await _handle(callback, session, lang, WarehouseStatus.REJECTED, "wh_rejected")
+async def wh_reject(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user, request = await _wh_pending(callback, session, lang)
+    if request is None:
+        return
+    await state.clear()
+    await set_warehouse_status(session, request=request, status=WarehouseStatus.REJECTED, operator=user)
+    await session.commit()
+    await callback.message.edit_text(_card(lang, request) + "\n\n" + t(lang, "wh_rejected", id=request.id))
+    await callback.answer()
 
 
 # ==================== Yangi doktor/dorixona tasdig'i ====================
-
-
-def _entity_kb(lang: str, kind: str, entity_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=t(lang, "btn_entity_ok"), callback_data=f"ent_ok:{kind}:{entity_id}"),
-                InlineKeyboardButton(text=t(lang, "btn_entity_reject"), callback_data=f"ent_reject:{kind}:{entity_id}"),
-            ]
-        ]
-    )
-
-
-def _doctor_card(lang: str, doctor) -> str:
-    return t(
-        lang,
-        "doctor_card_pending",
-        id=doctor.id,
-        name=safe(doctor.full_name),
-        phone=safe(doctor.phone_number),
-        location=safe(doctor.location_text),
-        region=safe(doctor.region.name if doctor.region else None),
-        author=safe(doctor.manager.full_name if doctor.manager else None),
-    )
 
 
 def _pharmacy_card(lang: str, pharmacy) -> str:
@@ -144,21 +241,6 @@ def _pharmacy_card(lang: str, pharmacy) -> str:
     )
 
 
-@router.message(F.text.in_(variants("btn_doctor_approve")), RoleFilter(Role.TOP_MANAGER, Role.OWNER))
-async def doctor_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
-    """Doktor tasdiqlash — faqat TOP menejer (va owner)."""
-    user = await require_user(message, session)
-    if user is None:
-        return
-    doctors = await list_pending_doctors(session)
-    if not doctors:
-        await message.answer(t(lang, "doctor_approve_empty"))
-        return
-    await message.answer(t(lang, "doctor_approve_header"))
-    for doctor in doctors:
-        await message.answer(_doctor_card(lang, doctor), reply_markup=_entity_kb(lang, "d", doctor.id))
-
-
 @router.message(F.text.in_(variants("btn_pharmacy_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
 async def pharmacy_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
     """Dorixona tasdiqlash — operator (va owner)."""
@@ -171,22 +253,20 @@ async def pharmacy_approve_list(message: Message, session: AsyncSession, lang: s
         return
     await message.answer(t(lang, "pharmacy_approve_header"))
     for pharmacy in pharmacies:
-        await message.answer(_pharmacy_card(lang, pharmacy), reply_markup=_entity_kb(lang, "p", pharmacy.id))
+        await message.answer(_pharmacy_card(lang, pharmacy), reply_markup=entity_approve_keyboard(lang, "p", pharmacy.id))
 
 
 class PharmacyApproveFlow(StatesGroup):
-    """Dorixona tasdig'i: nom tekshirish -> shartnoma raqami -> shartnoma fayli."""
+    """Dorixona tasdig'i: nom tekshirish -> shartnoma raqami -> shartnoma sanasi (PDF yo'q)."""
 
     name_edit = State()
     contract_number = State()
-    contract_file = State()
+    contract_date = State()
 
 
 async def _get_pending(callback: CallbackQuery, session: AsyncSession, lang: str, kind: str, entity_id: int):
-    if kind == "d":
-        entity = await get_doctor(session, entity_id)
-    else:
-        entity = await get_pharmacy(session, entity_id)
+    """PENDING dorixonani qaytaradi (doktor tasdiqsiz yaratiladi — faqat 'p')."""
+    entity = await get_pharmacy(session, entity_id)
     if entity is None or entity.approval_status != ApprovalStatus.PENDING:
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return None
@@ -203,28 +283,15 @@ async def entity_ok(callback: CallbackQuery, session: AsyncSession, state: FSMCo
         await callback.answer()
         return
     kind, entity_id = parts[1], int(parts[2])
-    # Doktor -> TOP menejer; dorixona -> operator (soxta callback'ga qarshi tur bo'yicha gate).
-    allowed = can_approve_doctors(user.role) if kind == "d" else can_approve_pharmacies(user.role)
-    if not allowed:
+    # Faqat dorixona tasdig'i qoldi (doktor tasdiqsiz yaratiladi).
+    if kind != "p" or not can_approve_pharmacies(user.role):
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
     entity = await _get_pending(callback, session, lang, kind, entity_id)
     if entity is None:
         return
 
-    if kind == "d":
-        # Doktor: bir bosishda tasdiqlanadi.
-        await set_doctor_status(session, doctor=entity, status=ApprovalStatus.APPROVED, operator=user)
-        await session.commit()
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        await callback.message.answer(t(lang, "entity_approved"))
-        await callback.answer()
-        return
-
-    # Dorixona: nom tekshirish -> shartnoma raqami -> shartnoma fayli.
+    # Dorixona: nom tekshirish -> shartnoma raqami -> shartnoma sanasi.
     # Tugmalar dorixona ID'sini olib yuradi — ikki karta parallel ochilganda
     # oxirgi bosilgan karta aniq belgilanadi (pha_id ustma-ust yozilib adashmaydi).
     await callback.message.answer(
@@ -299,17 +366,22 @@ async def pha_contract_number(message: Message, state: FSMContext, lang: str) ->
         await message.answer(t(lang, "name_too_short"))
         return
     await state.update_data(contract_number=number)
-    await state.set_state(PharmacyApproveFlow.contract_file)
-    await message.answer(t(lang, "upload_contract_file"))
+    # PDF fayl SO'RALMAYDI — faqat shartnoma sanasi.
+    await state.set_state(PharmacyApproveFlow.contract_date)
+    await message.answer(t(lang, "enter_contract_date"))
 
 
-@router.message(PharmacyApproveFlow.contract_file, F.document)
-async def pha_contract_file(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+@router.message(PharmacyApproveFlow.contract_date)
+async def pha_contract_date(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
-    if user is None or message.document is None:
+    if user is None:
         return
     if not can_approve_pharmacies(user.role):
         await state.clear()
+        return
+    signed_date = (message.text or "").strip()
+    if len(signed_date) < 4:
+        await message.answer(t(lang, "enter_contract_date"))
         return
 
     data = await state.get_data()
@@ -324,19 +396,15 @@ async def pha_contract_file(message: Message, session: AsyncSession, state: FSMC
         pharmacy=pharmacy,
         operator=user,
         contract_number=data["contract_number"],
-        contract_file_id=message.document.file_id,
+        signed_date=signed_date,
         new_name=data.get("new_name"),
     )
     await session.commit()
     await state.clear()
     await message.answer(
         t(lang, "pharmacy_approved_contract", name=safe(pharmacy.name), number=safe(contract.number))
+        + f" ({safe(contract.signed_date)})"
     )
-
-
-@router.message(PharmacyApproveFlow.contract_file)
-async def pha_contract_file_invalid(message: Message, lang: str) -> None:
-    await message.answer(t(lang, "need_document"))
 
 
 @router.callback_query(F.data.startswith("ent_reject:"))
@@ -349,19 +417,14 @@ async def entity_reject(callback: CallbackQuery, session: AsyncSession, lang: st
         await callback.answer()
         return
     kind, entity_id = parts[1], int(parts[2])
-    allowed = can_approve_doctors(user.role) if kind == "d" else can_approve_pharmacies(user.role)
-    if not allowed:
+    if kind != "p" or not can_approve_pharmacies(user.role):
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
     entity = await _get_pending(callback, session, lang, kind, entity_id)
     if entity is None:
         return
 
-    if kind == "d":
-        await set_doctor_status(session, doctor=entity, status=ApprovalStatus.REJECTED, operator=user)
-    else:
-        await set_pharmacy_status(session, pharmacy=entity, status=ApprovalStatus.REJECTED, operator=user)
-
+    await set_pharmacy_status(session, pharmacy=entity, status=ApprovalStatus.REJECTED, operator=user)
     await session.commit()
     try:
         await callback.message.edit_reply_markup(reply_markup=None)

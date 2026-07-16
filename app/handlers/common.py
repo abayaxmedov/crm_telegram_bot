@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Role, User
 from app.db.repositories import (
     bind_invited_user,
+    get_doctor_by_user,
     get_user_by_invite_token,
     get_user_by_telegram_id,
     try_link_doctor_user,
@@ -26,6 +27,24 @@ router = Router(name="common")
 
 class PhoneNumberFlow(StatesGroup):
     phone_number = State()
+
+
+async def show_doctor_balance(message: Message, session: AsyncSession, user: User, lang: str) -> None:
+    """Doktorga salomlashuvsiz balans + menyu ko'rsatadi (xabar 6 soatda avto-o'chadi)."""
+    doctor = await get_doctor_by_user(session, user.id)
+    balance = int(doctor.ball_balance or 0) if doctor is not None else 0
+    await message.answer(
+        t(lang, "doctor_balance_text", balance=balance),
+        reply_markup=main_menu(Role.DOCTOR, lang),
+    )
+
+
+@router.message(F.text.in_(variants("btn_doctor_balance")))
+async def doctor_balance(message: Message, session: AsyncSession, lang: str) -> None:
+    user = await get_user_by_telegram_id(session, message.from_user.id) if message.from_user else None
+    if user is None or not user.is_active or user.role != Role.DOCTOR:
+        return
+    await show_doctor_balance(message, session, user, lang)
 
 
 def _region_line(lang: str, user: User) -> str:
@@ -78,6 +97,11 @@ async def cmd_start(
                 lang=lang,
                 reply_markup=phone_number_keyboard(lang),
             )
+            return
+
+        # Doktor: salomlashuv/"CRM'ga kirdingiz" kerak emas — to'g'ridan balans.
+        if current_user.role == Role.DOCTOR:
+            await show_doctor_balance(message, session, current_user, lang)
             return
 
         await answer_media(
@@ -291,6 +315,12 @@ async def save_user_phone(
         await try_link_doctor_user(session, user)
     await session.commit()
     await state.clear()
+
+    # Doktor: salomlashuv/rol/CRM matni kerak emas — to'g'ridan balans menyusi.
+    if user.role == Role.DOCTOR:
+        await message.answer(t(lang, "phone_saved"), reply_markup=ReplyKeyboardRemove())
+        await show_doctor_balance(message, session, user, lang)
+        return
 
     text = (
         f"{t(lang, 'phone_saved')}\n\n"

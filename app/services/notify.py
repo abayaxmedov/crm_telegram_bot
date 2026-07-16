@@ -3,7 +3,7 @@ from __future__ import annotations
 """Doktor xabarlari va rejalashtirilgan o'chirish.
 
 Doktor chatiga yuboriladigan xabarlar (ball tushishi/ayirilishi, tasdiqlash so'rovi)
-24 soatdan keyin butunlay o'chiriladi. Tasdiqlash xabari o'chirilganda hali PENDING
+6 soatdan keyin butunlay o'chiriladi. Tasdiqlash xabari o'chirilganda hali PENDING
 bo'lgan o'tkazma EXPIRED holatiga o'tadi va yuboruvchiga xabar boradi."""
 
 import asyncio
@@ -25,7 +25,7 @@ from app.i18n import normalize, t
 
 logger = logging.getLogger(__name__)
 
-DOCTOR_MESSAGE_TTL = timedelta(hours=24)
+DOCTOR_MESSAGE_TTL = timedelta(hours=6)
 SWEEP_INTERVAL_SECONDS = 60
 
 
@@ -38,7 +38,7 @@ async def send_to_doctor(
     reply_markup: InlineKeyboardMarkup | None = None,
     ball_tx_id: int | None = None,
 ) -> bool:
-    """Bog'langan doktor chatiga xabar yuboradi va 24 soatga o'chirishni rejalaydi.
+    """Bog'langan doktor chatiga xabar yuboradi va 6 soatga o'chirishni rejalaydi.
 
     Doktor botga ulanmagan yoki yuborib bo'lmasa False qaytaradi."""
     bot_user = doctor.bot_user

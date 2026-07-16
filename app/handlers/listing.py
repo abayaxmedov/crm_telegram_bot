@@ -31,9 +31,11 @@ from app.i18n import role_label, t
 from app.keyboards.reply import user_manage_keyboard
 from app.services.listing import get_spec, show_list
 from app.services.security import (
+    can_edit_doctors,
     can_manage_lpu,
     can_view_directories,
     can_view_pharmacies,
+    doctor_visible_to,
     pharmacy_visible_to,
 )
 
@@ -45,16 +47,13 @@ class ListSearch(StatesGroup):
 
 
 def _entity_in_scope(user, entity, *, operator_ok: bool = False) -> bool:
+    """Doktor kartasi uchun ko'lam: markaziy `doctor_visible_to` bilan bir xil
+    (regional/medvakil => faqat o'zi yaratgan)."""
     if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
         return False
-    allowed = {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}
-    if operator_ok:
-        allowed = allowed | {Role.OPERATOR}
-    if user.role in allowed:
+    if operator_ok and user.role == Role.OPERATOR:
         return True
-    if user.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
-        return entity.region_id == user.region_id
-    return False
+    return doctor_visible_to(user, entity)
 
 
 @router.callback_query(F.data.startswith("lst:"))
@@ -133,6 +132,13 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
     bu = doctor.bot_user
     tg = bu.telegram_id if bu and bu.telegram_id else "—"
     username = f"@{escape(bu.username)}" if bu and bu.username else "—"
+    kb = None
+    if can_edit_doctors(user.role):
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_doctor_edit"), callback_data=f"doc_edit:{doctor.id}")]
+            ]
+        )
     await callback.message.answer(
         t(
             lang, "doctor_card",
@@ -143,7 +149,8 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
             category=safe(doctor.class_category), location=safe(doctor.location_text),
             manager=safe(doctor.manager.full_name if doctor.manager else None),
             ball=int(doctor.ball_balance or 0),
-        )
+        ),
+        reply_markup=kb,
     )
 
 

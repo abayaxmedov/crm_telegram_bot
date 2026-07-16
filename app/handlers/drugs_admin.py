@@ -24,12 +24,14 @@ router = Router(name="drugs_admin")
 
 class DrugAddFlow(StatesGroup):
     name = State()
-    price = State()
+    price_100 = State()  # 100% oldindan to'lov narxi (arzonroq)
+    price_50 = State()   # 50% oldindan + qolgani keyin (qimmatroq)
     ball = State()
 
 
 class DrugEditFlow(StatesGroup):
-    price = State()
+    price_100 = State()
+    price_50 = State()
     ball = State()
 
 
@@ -47,7 +49,8 @@ def _drug_line(lang: str, drug) -> str:
         "drug_row",
         id=drug.id,
         name=safe(drug.name),
-        price=f"{drug.price or 0:,.2f}",
+        price100=f"{drug.price_100 or 0:,.2f}",
+        price50=f"{drug.price_50 or 0:,.2f}",
         ball=int(drug.ball or 0),
     )
 
@@ -86,17 +89,28 @@ async def drug_add_name(message: Message, state: FSMContext, lang: str) -> None:
         await message.answer(t(lang, "name_too_short"))
         return
     await state.update_data(name=name)
-    await state.set_state(DrugAddFlow.price)
-    await message.answer(t(lang, "enter_drug_price"))
+    await state.set_state(DrugAddFlow.price_100)
+    await message.answer(t(lang, "enter_drug_price_100"))
 
 
-@router.message(DrugAddFlow.price)
-async def drug_add_price(message: Message, state: FSMContext, lang: str) -> None:
+@router.message(DrugAddFlow.price_100)
+async def drug_add_price_100(message: Message, state: FSMContext, lang: str) -> None:
     price = _parse_price(message.text)
     if price is None:
         await message.answer(t(lang, "price_invalid"))
         return
-    await state.update_data(price=str(price))
+    await state.update_data(price_100=str(price))
+    await state.set_state(DrugAddFlow.price_50)
+    await message.answer(t(lang, "enter_drug_price_50"))
+
+
+@router.message(DrugAddFlow.price_50)
+async def drug_add_price_50(message: Message, state: FSMContext, lang: str) -> None:
+    price = _parse_price(message.text)
+    if price is None:
+        await message.answer(t(lang, "price_invalid"))
+        return
+    await state.update_data(price_50=str(price))
     await state.set_state(DrugAddFlow.ball)
     await message.answer(t(lang, "enter_drug_ball"))
 
@@ -115,7 +129,14 @@ async def drug_add_finish(message: Message, session: AsyncSession, state: FSMCon
         return
 
     data = await state.get_data()
-    drug = await add_drug(session, name=data["name"], price=Decimal(data["price"]), ball=int(raw), actor=user)
+    drug = await add_drug(
+        session,
+        name=data["name"],
+        price_100=Decimal(data["price_100"]),
+        price_50=Decimal(data["price_50"]),
+        ball=int(raw),
+        actor=user,
+    )
     await session.commit()
     await state.clear()
     await message.answer(
@@ -124,7 +145,8 @@ async def drug_add_finish(message: Message, session: AsyncSession, state: FSMCon
             "drug_saved",
             id=drug.id,
             name=escape(drug.name),
-            price=f"{drug.price:,.2f}",
+            price100=f"{drug.price_100 or 0:,.2f}",
+            price50=f"{drug.price_50 or 0:,.2f}",
             ball=int(drug.ball or 0),
         ),
         reply_markup=drugs_menu(lang),
@@ -177,18 +199,29 @@ async def drug_edit_pick(callback: CallbackQuery, session: AsyncSession, state: 
         await callback.answer()
         return
     await state.update_data(drug_id=drug.id)
-    await state.set_state(DrugEditFlow.price)
-    await callback.message.answer(t(lang, "enter_drug_price"))
+    await state.set_state(DrugEditFlow.price_100)
+    await callback.message.answer(t(lang, "enter_drug_price_100"))
     await callback.answer()
 
 
-@router.message(DrugEditFlow.price)
-async def drug_edit_price(message: Message, state: FSMContext, lang: str) -> None:
+@router.message(DrugEditFlow.price_100)
+async def drug_edit_price_100(message: Message, state: FSMContext, lang: str) -> None:
     price = _parse_price(message.text)
     if price is None:
         await message.answer(t(lang, "price_invalid"))
         return
-    await state.update_data(price=str(price))
+    await state.update_data(price_100=str(price))
+    await state.set_state(DrugEditFlow.price_50)
+    await message.answer(t(lang, "enter_drug_price_50"))
+
+
+@router.message(DrugEditFlow.price_50)
+async def drug_edit_price_50(message: Message, state: FSMContext, lang: str) -> None:
+    price = _parse_price(message.text)
+    if price is None:
+        await message.answer(t(lang, "price_invalid"))
+        return
+    await state.update_data(price_50=str(price))
     await state.set_state(DrugEditFlow.ball)
     await message.answer(t(lang, "enter_drug_ball"))
 
@@ -211,7 +244,14 @@ async def drug_edit_finish(message: Message, session: AsyncSession, state: FSMCo
     if drug is None:
         await state.clear()
         return
-    await update_drug(session, drug=drug, price=Decimal(data["price"]), ball=int(raw), actor=user)
+    await update_drug(
+        session,
+        drug=drug,
+        price_100=Decimal(data["price_100"]),
+        price_50=Decimal(data["price_50"]),
+        ball=int(raw),
+        actor=user,
+    )
     await session.commit()
     await state.clear()
     await message.answer(
@@ -219,7 +259,8 @@ async def drug_edit_finish(message: Message, session: AsyncSession, state: FSMCo
             lang,
             "drug_updated",
             name=escape(drug.name),
-            price=f"{drug.price:,.2f}",
+            price100=f"{drug.price_100 or 0:,.2f}",
+            price50=f"{drug.price_50 or 0:,.2f}",
             ball=int(drug.ball or 0),
         ),
         reply_markup=drugs_menu(lang),

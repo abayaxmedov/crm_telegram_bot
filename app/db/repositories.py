@@ -41,6 +41,9 @@ from app.db.models import (
     VisitDiary,
     WarehouseRequest,
     WarehouseRequestItem,
+    Wholesaler,
+    WholesaleIncome,
+    WholesaleIncomeItem,
     WarehouseStatus,
 )
 
@@ -288,6 +291,38 @@ async def add_daily_report(
     return report
 
 
+async def edit_doctor(
+    session: AsyncSession,
+    *,
+    doctor: Doctor,
+    actor: User,
+    full_name: str | None = None,
+    phone_number: str | None = None,
+    class_category: str | None = None,
+    region_id: int | None = None,
+    lpu_id: int | None = None,
+) -> None:
+    """Doktor ma'lumotlarini tahrirlash (owner/TOP/product). Faqat berilgan maydonlar."""
+    changes: list[str] = []
+    if full_name is not None:
+        doctor.full_name = full_name
+        changes.append("full_name")
+    if phone_number is not None:
+        doctor.phone_number = phone_number
+        changes.append("phone")
+    if class_category is not None:
+        doctor.class_category = class_category
+        changes.append("category")
+    if region_id is not None:
+        doctor.region_id = region_id
+        changes.append(f"region={region_id}")
+    if lpu_id is not None:
+        doctor.lpu_id = lpu_id
+        changes.append(f"lpu={lpu_id}")
+    await session.flush()
+    await log_action(session, actor, "doctor_edited", "doctor", str(doctor.id), ", ".join(changes) or "-")
+
+
 async def list_daily_reports(session: AsyncSession, *, actor: User, limit: int = 20) -> list[DailyReport]:
     query = select(DailyReport).order_by(desc(DailyReport.created_at)).limit(limit)
     ids = await visible_rep_ids(session, actor)
@@ -429,10 +464,13 @@ async def list_doctors_with_bonus(session: AsyncSession, manager: User) -> list[
     return list(result.scalars())
 
 
-async def list_doctors_visible(session: AsyncSession, actor: User, limit: int = 200) -> list[Doctor]:
+async def list_doctors_visible(
+    session: AsyncSession, actor: User, limit: int = 200, *, lpu_id: int | None = None
+) -> list[Doctor]:
     """Rolga qarab ko'rinadigan (APPROVED) doktorlar.
 
-    owner/top/product => hammasi; regional/medvakil => o'z regioni."""
+    owner/top/product => hammasi; regional menejer => o'z REGIONI (o'zi yaratmagan
+    bo'lsa ham); medvakil => FAQAT o'zi yaratgan. `lpu_id` berilsa — shu ЛПУ doktorlari."""
     query = (
         select(Doctor)
         .options(
@@ -444,10 +482,14 @@ async def list_doctors_visible(session: AsyncSession, actor: User, limit: int = 
         .order_by(desc(Doctor.created_at))
         .limit(limit)
     )
-    if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
+    if actor.role == Role.REGIONAL_MANAGER:
         query = query.where(Doctor.region_id == actor.region_id)
+    elif actor.role == Role.MANAGER:
+        query = query.where(Doctor.manager_id == actor.id)
     elif actor.role not in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
         return []
+    if lpu_id is not None:
+        query = query.where(Doctor.lpu_id == lpu_id)
     return list((await session.execute(query)).scalars())
 
 
@@ -524,6 +566,13 @@ async def get_doctor(session: AsyncSession, doctor_id: int) -> Doctor | None:
     return (await session.execute(select(Doctor).where(Doctor.id == doctor_id))).scalar_one_or_none()
 
 
+async def get_doctor_by_user(session: AsyncSession, user_id: int) -> Doctor | None:
+    """Bot foydalanuvchisiga bog'langan doktor yozuvi (doktor o'z balansini ko'rishi uchun)."""
+    return (
+        await session.execute(select(Doctor).where(Doctor.user_id == user_id))
+    ).scalar_one_or_none()
+
+
 async def get_doctor_with_user(session: AsyncSession, doctor_id: int) -> Doctor | None:
     """Doktor + bog'langan bot foydalanuvchisi (xabar yuborish uchun)."""
     result = await session.execute(
@@ -583,10 +632,13 @@ async def list_lpus_visible(session: AsyncSession, actor: User, limit: int = 200
 
 
 async def list_lpus_in_region(session: AsyncSession, region_id: int | None, limit: int = 200) -> list["Lpu"]:
-    """Berilgan regiondagi ЛПУ ro'yxati (doktor yaratishда tanlash uchun)."""
-    query = select(Lpu).order_by(Lpu.name).limit(limit)
-    if region_id is not None:
-        query = query.where(Lpu.region_id == region_id)
+    """Berilgan regiondagi ЛПУ ro'yxati (doktor yaratishда tanlash uchun).
+
+    region_id=None bo'lsa BO'SH ro'yxat qaytadi — region aniq bo'lmaganда butun
+    tarmoq ЛПУлари ko'rinиб ketmasligi uchun (region-scope himoyasi)."""
+    if region_id is None:
+        return []
+    query = select(Lpu).where(Lpu.region_id == region_id).order_by(Lpu.name).limit(limit)
     return list((await session.execute(query)).scalars())
 
 
@@ -698,7 +750,8 @@ async def create_sale(
     total_price = Decimal("0")
     total_ball = 0
     for drug, qty in items:
-        price = drug.price or Decimal("0")
+        # Sotuv to'liq (100%) narxda hisoblanadi.
+        price = drug.price_100 or drug.price or Decimal("0")
         ball = int(drug.ball or 0)
         total_price += price * qty
         total_ball += ball * qty
@@ -769,6 +822,13 @@ async def request_contract(session: AsyncSession, *, pharmacy: Pharmacy, rep: Us
     return contract
 
 
+def drug_price_for(drug: Drug, payment_percent: int) -> Decimal:
+    """Apteka to'lov shartiga mos narx: 100% => price_100 (arzon), 50% => price_50 (qimmat)."""
+    if int(payment_percent) == 50:
+        return drug.price_50 or Decimal("0")
+    return drug.price_100 or Decimal("0")
+
+
 async def create_warehouse_request(
     session: AsyncSession,
     *,
@@ -776,20 +836,37 @@ async def create_warehouse_request(
     pharmacy: Pharmacy | None,
     contract: Contract | None,
     items: list[tuple[Drug, int]],
+    payment_percent: int = 100,
 ) -> WarehouseRequest:
+    """Zayavka: apteka boshlang'ich to'lov sharti (100/50) bo'yicha narx snapshot qilinadi."""
     request = WarehouseRequest(
         rep_id=rep.id,
         pharmacy_id=pharmacy.id if pharmacy else None,
         contract_id=contract.id if contract else None,
+        payment_percent=int(payment_percent),
     )
     session.add(request)
     await session.flush()
     for drug, qty in items:
         session.add(
-            WarehouseRequestItem(request_id=request.id, drug_id=drug.id, drug_name=drug.name, quantity=qty)
+            WarehouseRequestItem(
+                request_id=request.id,
+                drug_id=drug.id,
+                drug_name=drug.name,
+                quantity=qty,
+                price=drug_price_for(drug, payment_percent),
+            )
         )
-    await log_action(session, rep, "warehouse_request_created", "warehouse_request", str(request.id), None)
+    await log_action(
+        session, rep, "warehouse_request_created", "warehouse_request", str(request.id),
+        f"payment={payment_percent}%",
+    )
     return request
+
+
+def warehouse_request_total(request: WarehouseRequest) -> Decimal:
+    """Zayavka summasi (items EAGER-LOAD bo'lishi shart)."""
+    return sum((it.price or Decimal("0")) * it.quantity for it in request.items) or Decimal("0")
 
 
 def _wh_options():
@@ -820,19 +897,133 @@ async def get_warehouse_request(session: AsyncSession, request_id: int) -> Wareh
 
 
 async def set_warehouse_status(
-    session: AsyncSession, *, request: WarehouseRequest, status: WarehouseStatus, operator: User
+    session: AsyncSession,
+    *,
+    request: WarehouseRequest,
+    status: WarehouseStatus,
+    operator: User,
+    shipped: dict[int, int] | None = None,
 ) -> None:
-    """Zayavka holatini o'zgartiradi. APPROVED bo'lsa tanlangan APTEKA qoldig'iga qo'shiladi.
+    """Zayavka holatini o'zgartiradi.
 
-    Ombor CHEKSIZ — chegara yo'q, ombor qoldig'i saqlanmaydi. So'ralgan miqdor
-    to'liq aptekaga yetkaziladi."""
-    if status == WarehouseStatus.APPROVED and request.pharmacy_id is not None:
+    APPROVED — operator OTGRUZKA kiritgandan keyin: apteka qoldig'i so'ralgan emas,
+    `shipped` (item_id -> jo'natilgan miqdor) bo'yicha o'zgaradi. Ombor CHEKSIZ —
+    ombor qoldig'i saqlanmaydi, operator xohlagan miqdorni jo'nata oladi.
+    REJECTED — qoldiq umuman o'zgarmaydi."""
+    if status == WarehouseStatus.APPROVED:
+        shipped = shipped or {}
         for item in request.items:
-            await bump_pharmacy_stock(
-                session, pharmacy_id=request.pharmacy_id, drug_id=item.drug_id, delta=item.quantity
-            )
+            qty = max(0, int(shipped.get(item.id, 0)))
+            item.shipped_quantity = qty
+            if qty and request.pharmacy_id is not None:
+                await bump_pharmacy_stock(
+                    session, pharmacy_id=request.pharmacy_id, drug_id=item.drug_id, delta=qty
+                )
     request.status = status
     await log_action(session, operator, "warehouse_status_changed", "warehouse_request", str(request.id), status.value)
+
+
+def warehouse_shipped_total(request: WarehouseRequest) -> Decimal:
+    """Haqiqatda jo'natilgan miqdor bo'yicha summa (items EAGER-LOAD bo'lishi shart)."""
+    return sum(
+        ((it.price or Decimal("0")) * (it.shipped_quantity or 0) for it in request.items), Decimal("0")
+    )
+
+
+# ==================== Оптом (ulgurji yetkazib beruvchi) ====================
+
+
+async def add_wholesaler(
+    session: AsyncSession, *, name: str, inn: str | None, phone_number: str | None, actor: User
+) -> Wholesaler:
+    """Optom yaratish — faqat OWNER (ruxsat handler'da tekshiriladi)."""
+    wholesaler = Wholesaler(name=name, inn=inn, phone_number=phone_number, created_by_id=actor.id)
+    session.add(wholesaler)
+    await session.flush()
+    await log_action(session, actor, "wholesaler_created", "wholesaler", str(wholesaler.id), name)
+    return wholesaler
+
+
+async def list_wholesalers(session: AsyncSession, *, only_active: bool = True) -> list[Wholesaler]:
+    query = select(Wholesaler)
+    if only_active:
+        query = query.where(Wholesaler.is_active.is_(True))
+    return list((await session.execute(query.order_by(Wholesaler.name))).scalars())
+
+
+async def get_wholesaler(session: AsyncSession, wholesaler_id: int | None) -> Wholesaler | None:
+    if not wholesaler_id:
+        return None
+    return (
+        await session.execute(select(Wholesaler).where(Wholesaler.id == wholesaler_id))
+    ).scalar_one_or_none()
+
+
+# ==================== Оптомдан приход ====================
+
+
+async def create_wholesale_income(
+    session: AsyncSession, *, rep: User, pharmacy: Pharmacy, wholesaler: Wholesaler, items: list[tuple[Drug, int]]
+) -> WholesaleIncome:
+    """PENDING prixod — TOP menejer tasdiqlagunча apteka qoldig'i O'ZGARMAYDI."""
+    income = WholesaleIncome(rep_id=rep.id, pharmacy_id=pharmacy.id, wholesaler_id=wholesaler.id)
+    session.add(income)
+    await session.flush()
+    for drug, qty in items:
+        session.add(
+            WholesaleIncomeItem(income_id=income.id, drug_id=drug.id, drug_name=drug.name, quantity=qty)
+        )
+    await log_action(
+        session, rep, "wholesale_income_created", "wholesale_income", str(income.id), wholesaler.name
+    )
+    await session.flush()
+    return income
+
+
+def _wi_options():
+    return (
+        selectinload(WholesaleIncome.items),
+        selectinload(WholesaleIncome.pharmacy),
+        selectinload(WholesaleIncome.wholesaler),
+        selectinload(WholesaleIncome.rep),
+    )
+
+
+async def get_wholesale_income(session: AsyncSession, income_id: int) -> WholesaleIncome | None:
+    return (
+        await session.execute(
+            select(WholesaleIncome).where(WholesaleIncome.id == income_id).options(*_wi_options())
+        )
+    ).scalar_one_or_none()
+
+
+async def list_pending_wholesale_incomes(session: AsyncSession, limit: int = 20) -> list[WholesaleIncome]:
+    return list(
+        (
+            await session.execute(
+                select(WholesaleIncome)
+                .where(WholesaleIncome.status == ApprovalStatus.PENDING)
+                .order_by(WholesaleIncome.created_at)
+                .options(*_wi_options())
+                .limit(limit)
+            )
+        ).scalars()
+    )
+
+
+async def set_wholesale_income_status(
+    session: AsyncSession, *, income: WholesaleIncome, status: ApprovalStatus, actor: User
+) -> None:
+    """APPROVED — apteka qoldig'i prixod miqdoriga oshadi; REJECTED — qoldiq tegilmaydi."""
+    if status == ApprovalStatus.APPROVED and income.pharmacy_id is not None:
+        for item in income.items:
+            await bump_pharmacy_stock(
+                session, pharmacy_id=income.pharmacy_id, drug_id=item.drug_id, delta=int(item.quantity)
+            )
+    income.status = status
+    await log_action(
+        session, actor, "wholesale_income_status_changed", "wholesale_income", str(income.id), status.value
+    )
 
 
 async def pay_doctor_bonus(session: AsyncSession, *, rep: User, doctor: Doctor, amount: Decimal) -> None:
@@ -1049,18 +1240,30 @@ async def report_visits(
 # ==================== Dorilar (tovarlar) — owner CRUD ====================
 
 
-async def add_drug(session: AsyncSession, *, name: str, price: Decimal, ball: int, actor: User) -> Drug:
-    drug = Drug(name=name, price=price, ball=ball)
+async def add_drug(
+    session: AsyncSession, *, name: str, price_100: Decimal, price_50: Decimal, ball: int, actor: User
+) -> Drug:
+    """Yangi dori: 100% to'lov narxi (arzon) + 50% bo'lib to'lash narxi (qimmat) + ball."""
+    drug = Drug(name=name, price_100=price_100, price_50=price_50, price=price_100, ball=ball)
     session.add(drug)
     await session.flush()
-    await log_action(session, actor, "drug_created", "drug", str(drug.id), f"{name} price={price} ball={ball}")
+    await log_action(
+        session, actor, "drug_created", "drug", str(drug.id),
+        f"{name} 100%={price_100} 50%={price_50} ball={ball}",
+    )
     return drug
 
 
-async def update_drug(session: AsyncSession, *, drug: Drug, price: Decimal, ball: int, actor: User) -> Drug:
-    drug.price = price
+async def update_drug(
+    session: AsyncSession, *, drug: Drug, price_100: Decimal, price_50: Decimal, ball: int, actor: User
+) -> Drug:
+    drug.price_100 = price_100
+    drug.price_50 = price_50
+    drug.price = price_100  # legacy ustun — 100% narx bilan sinxron
     drug.ball = ball
-    await log_action(session, actor, "drug_updated", "drug", str(drug.id), f"price={price} ball={ball}")
+    await log_action(
+        session, actor, "drug_updated", "drug", str(drug.id), f"100%={price_100} 50%={price_50} ball={ball}"
+    )
     return drug
 
 
@@ -1257,13 +1460,20 @@ async def get_ball_balance(
 
 
 async def doctors_for_ball_transfer(session: AsyncSession, rep: User) -> list[Doctor]:
-    """Medvakil ball yubora oladigan doktorlar: o'z regioni, APPROVED, botga ulangan."""
+    """Ball yubora oladigan doktorlar: ko'rinish qoidasi bo'yicha, APPROVED, botga ulangan.
+
+    Medvakil => o'zi yaratgan; regional menejer => o'z regionidagi hammasi."""
+    scope = (
+        Doctor.region_id == rep.region_id
+        if rep.role == Role.REGIONAL_MANAGER
+        else Doctor.manager_id == rep.id
+    )
     result = await session.execute(
         select(Doctor)
         .options(selectinload(Doctor.bot_user))
         .where(
             Doctor.approval_status == ApprovalStatus.APPROVED,
-            Doctor.region_id == rep.region_id,
+            scope,
             Doctor.user_id.is_not(None),
         )
         .order_by(Doctor.full_name)
@@ -1275,16 +1485,27 @@ async def doctors_for_ball_transfer(session: AsyncSession, rep: User) -> list[Do
 async def ball_scope(session: AsyncSession, actor: User) -> tuple[set[int] | None, set[int] | None]:
     """Ball hisoboti ko'lami: (user_id'lar, doktor_id'lar). (None, None) => cheklovsiz.
 
-    owner/top/product => hammasi; regional => o'zi + region medvakillari + region doktorlari;
-    medvakil => o'zi + region doktorlari."""
+    owner/top/product => hammasi;
+    medvakil => o'zi + O'ZI YARATGAN doktorlar (ro'yxatdagi ko'rinish bilan bir xil);
+    regional => o'zi + region medvakillari + REGION doktorlari.
+
+    Regional uchun doktorlar ataylab REGION bo'yicha: bu JAMOA hisoboti — o'z
+    medvakillari qilgan ball o'tkazmalari ko'rinishi kerak (aks holda hisobot
+    bo'sh chiqadi). Direktoriyadagi doktor RO'YXATI esa baribir faqat o'zi
+    yaratganlari bilan cheklangan (`doctor_visible_to`)."""
     if actor.role in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
         return None, None
 
+    doctor_filter = (
+        Doctor.manager_id == actor.id
+        if actor.role == Role.MANAGER
+        else Doctor.region_id == actor.region_id
+    )
     doctor_ids = set(
         (
             await session.execute(
                 select(Doctor.id).where(
-                    Doctor.region_id == actor.region_id,
+                    doctor_filter,
                     Doctor.approval_status == ApprovalStatus.APPROVED,
                 )
             )
@@ -1450,19 +1671,21 @@ async def approve_pharmacy_with_contract(
     pharmacy: Pharmacy,
     operator: User,
     contract_number: str,
-    contract_file_id: str,
+    signed_date: str | None = None,
     new_name: str | None = None,
 ) -> Contract:
-    """Operator tasdig'i: nom tuzatish (ixtiyoriy) + shartnoma raqami/fayli + APPROVED."""
+    """Operator tasdig'i: nom tuzatish (ixtiyoriy) + shartnoma raqami/sanasi + APPROVED.
+
+    PDF fayl talab qilinmaydi (faqat raqam va sana)."""
     if new_name:
         pharmacy.name = new_name
     pharmacy.approval_status = ApprovalStatus.APPROVED
     contract = Contract(
         pharmacy_id=pharmacy.id,
         number=contract_number,
+        signed_date=signed_date,
         status=ContractStatus.ACTIVE,
         requested_by_id=operator.id,
-        file_id=contract_file_id,
     )
     session.add(contract)
     await session.flush()
@@ -1538,6 +1761,34 @@ async def set_user_active(session: AsyncSession, *, user: User, active: bool, ac
         session, actor, "user_activated" if active else "user_deactivated",
         "user", str(user.id), user.full_name,
     )
+
+
+async def edit_user(
+    session: AsyncSession,
+    *,
+    user: User,
+    actor: User,
+    full_name: str | None = None,
+    phone_number: str | None = None,
+    role: "Role | None" = None,
+    region_id: int | None = None,
+) -> None:
+    """Xodim ma'lumotlarini tahrirlash (owner). Faqat berilgan maydonlar yangilanadi."""
+    changes: list[str] = []
+    if full_name is not None:
+        user.full_name = full_name
+        changes.append("full_name")
+    if phone_number is not None:
+        user.phone_number = phone_number
+        changes.append("phone")
+    if role is not None:
+        user.role = role
+        changes.append(f"role={role.value}")
+    if region_id is not None:
+        user.region_id = region_id
+        changes.append(f"region={region_id}")
+    await session.flush()
+    await log_action(session, actor, "user_edited", "user", str(user.id), ", ".join(changes) or "-")
 
 
 async def delete_user(session: AsyncSession, *, user: User, actor: User) -> None:

@@ -14,6 +14,7 @@ from app.db.repositories import (
     add_daily_report,
     get_active_user,
     get_doctor,
+    get_lpu,
     get_pharmacy,
     list_daily_reports,
     list_regions,
@@ -32,7 +33,12 @@ from app.keyboards.reply import (
 )
 from app.services.listing import show_list
 from app.services.media import answer_media
-from app.services.security import REGION_SCOPED_REPORT_ROLES, pharmacy_visible_to, reports_viewer_roles
+from app.services.security import (
+    REGION_SCOPED_REPORT_ROLES,
+    doctor_visible_to,
+    pharmacy_visible_to,
+    reports_viewer_roles,
+)
 
 router = Router(name="reports")
 
@@ -52,12 +58,10 @@ class DailyReportFlow(StatesGroup):
 
 
 def _target_in_scope(user: User, entity) -> bool:
-    """Tanlangan doktor/dorixona APPROVED va yozuvchining ko'lamida (region) bo'lsin."""
+    """Tanlangan doktor APPROVED va yozuvchining ko'lamида (o'zi yaratgan) bo'lsin."""
     if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
         return False
-    if user.role in {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}:
-        return True
-    return entity.region_id == user.region_id
+    return doctor_visible_to(user, entity)
 
 
 @router.message(F.text.in_(variants("btn_daily")))
@@ -94,8 +98,31 @@ async def report_where(callback: CallbackQuery, session: AsyncSession, state: FS
         await callback.answer(t(lang, "section_closed"), show_alert=True)
         return
     target_type = (callback.data or "report_where:doctor").split(":", 1)[1]
-    key = "rep_tgt_doctor" if target_type == "doctor" else "rep_tgt_pharmacy"
+    # Doktor tanlash ikki bosqichли: avval ЛПУ, keyin shu ЛПУдаги doktorlar.
+    key = "rep_lpu" if target_type == "doctor" else "rep_tgt_pharmacy"
     await show_list(callback.message, session, user, lang, state, key)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rep_lpu:"))
+async def report_pick_lpu(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """ЛПУ tanlangач — shu ЛПУдаги (va yozuvchи ko'lamидаги) doktorlar ro'yxati."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if user.role not in REPORT_WRITER_ROLES:
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    lpu = await get_lpu(session, int((callback.data or "rep_lpu:0").split(":", 1)[1]))
+    # Soxta callback'ga qarshi: ЛПУ yozuvchи regionида bo'lishi shart
+    # (owner/TOP/product — regionга bog'lanmagan, hammasи ochiq).
+    if lpu is None or (
+        user.role in {Role.REGIONAL_MANAGER, Role.MANAGER} and lpu.region_id != user.region_id
+    ):
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await state.update_data(lpu_id=lpu.id)
+    await show_list(callback.message, session, user, lang, state, "rep_tgt_doctor", ctx={"lpu_id": lpu.id})
     await callback.answer()
 
 
@@ -115,7 +142,12 @@ async def report_target_pick(callback: CallbackQuery, session: AsyncSession, sta
     if target_type == "doctor":
         entity = await get_doctor(session, target_id)
         name = entity.full_name if entity else None
-        ok = _target_in_scope(user, entity)
+        # Soxta callback'ga qarshi: doktor ko'lamда VA tanlangan ЛПУга tegishli bo'lsin.
+        data = await state.get_data()
+        chosen_lpu = data.get("lpu_id")
+        ok = _target_in_scope(user, entity) and (
+            chosen_lpu is None or (entity is not None and entity.lpu_id == chosen_lpu)
+        )
     else:
         entity = await get_pharmacy(session, target_id)
         name = entity.name if entity else None

@@ -16,6 +16,7 @@ from app.db.session import AsyncSessionLocal, init_db
 from app.handlers import setup_routers
 from app.middlewares.db import DbSessionMiddleware
 from app.middlewares.language import LanguageMiddleware
+from app.services.doctor_autodelete import DoctorAutoDeleteMiddleware
 from app.services.notify import deletion_sweeper
 from app.services.profile import setup_bot_profile
 from app.webapp.server import create_webapp
@@ -52,6 +53,8 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    # Doktorga yuborilgan har qanday xabar 6 soatda avto-o'chadi.
+    bot.session.middleware(DoctorAutoDeleteMiddleware())
     dp = Dispatcher(storage=_build_storage())
     dp.update.middleware(DbSessionMiddleware())
     # OUTER middleware: filtrlardan (RoleFilter) oldin ishlashi uchun, shunda

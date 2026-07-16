@@ -13,13 +13,14 @@ from app.db.models import Role
 from app.db.repositories import (
     create_invited_user,
     delete_user,
+    edit_user,
     get_region,
     get_user_full,
     list_regions,
     list_users,
     set_user_active,
 )
-from app.handlers.utils import require_callback_user, require_user, user_line
+from app.handlers.utils import clean_optional, require_callback_user, require_user, user_line
 from app.i18n import role_label, t, variants
 from app.keyboards.reply import (
     admin_menu,
@@ -27,6 +28,8 @@ from app.keyboards.reply import (
     entities_inline,
     role_inline_keyboard,
     user_delete_confirm_keyboard,
+    user_edit_menu_keyboard,
+    user_edit_role_keyboard,
     user_manage_keyboard,
 )
 from app.services.listing import show_list
@@ -39,6 +42,10 @@ router = Router(name="admin")
 class CreateUserFlow(StatesGroup):
     full_name = State()
     region = State()
+
+
+class UserEditFlow(StatesGroup):
+    value = State()  # ism yoki telefon matnини kutish (edit_field FSM data'da)
 
 
 @router.message(F.text.in_(variants("btn_admin")))
@@ -251,3 +258,144 @@ async def user_del_cancel(callback: CallbackQuery, session: AsyncSession, lang: 
     except Exception:
         pass
     await callback.message.answer(t(lang, "user_delete_cancelled"))
+
+
+# ==================== Xodim ma'lumotlarini tahrirlash (owner) ====================
+
+
+@router.callback_query(F.data.startswith("user_edit:"))
+async def user_edit_menu(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, "ue_menu", name=escape(target.full_name)),
+        reply_markup=user_edit_menu_keyboard(lang, target.id),
+    )
+
+
+@router.callback_query(F.data.startswith("ue_name:"))
+async def ue_name_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    await state.update_data(edit_uid=target.id, edit_field="name")
+    await state.set_state(UserEditFlow.value)
+    await callback.message.answer(t(lang, "ue_enter_name"))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ue_phone:"))
+async def ue_phone_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    await state.update_data(edit_uid=target.id, edit_field="phone")
+    await state.set_state(UserEditFlow.value)
+    await callback.message.answer(t(lang, "ue_enter_phone"))
+    await callback.answer()
+
+
+@router.message(UserEditFlow.value)
+async def ue_value_save(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    owner = await require_user(message, session)
+    if owner is None or owner.role != Role.OWNER:
+        await state.clear()
+        return
+    data = await state.get_data()
+    target = await get_user_full(session, data.get("edit_uid"))
+    field = data.get("edit_field")
+    if target is None or target.id == owner.id:
+        await state.clear()
+        await message.answer(t(lang, "entity_not_found"))
+        return
+    raw = (message.text or "").strip()
+    if field == "name":
+        if len(raw) < 3:
+            await message.answer(t(lang, "fullname_too_short"))
+            return
+        await edit_user(session, user=target, actor=owner, full_name=raw)
+    else:  # phone
+        await edit_user(session, user=target, actor=owner, phone_number=clean_optional(raw))
+    await session.commit()
+    await state.clear()
+    await message.answer(t(lang, "user_edited_ok", name=escape(target.full_name)), reply_markup=admin_menu(lang))
+
+
+@router.callback_query(F.data.startswith("ue_role:"))
+async def ue_role_start(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    await callback.answer()
+    await callback.message.answer(t(lang, "ue_choose_role"), reply_markup=user_edit_role_keyboard(lang, target.id))
+
+
+@router.callback_query(F.data.startswith("uerole:"))
+async def ue_role_set(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner = await require_callback_user(callback, session)
+    if owner is None:
+        return
+    if owner.role != Role.OWNER:
+        await callback.answer(t(lang, "users_list_closed"), show_alert=True)
+        return
+    parts = (callback.data or "").split(":")  # uerole:{id}:{role}
+    if len(parts) != 3:
+        await callback.answer()
+        return
+    target = await get_user_full(session, int(parts[1]))
+    role = Role(parts[2])
+    if target is None or target.id == owner.id:
+        await callback.answer(t(lang, "user_cannot_self"), show_alert=True)
+        return
+    if not can_create_role(owner.role, role):
+        await callback.answer(t(lang, "role_not_allowed"), show_alert=True)
+        return
+    await edit_user(session, user=target, actor=owner, role=role)
+    await session.commit()
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, "user_edited_ok", name=escape(target.full_name)) + f" — {role_label(lang, role)}"
+    )
+
+
+@router.callback_query(F.data.startswith("ue_region:"))
+async def ue_region_start(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner, target = await _require_owner_target(callback, session, lang)
+    if owner is None or target is None:
+        return
+    regions = await list_regions(session)
+    if not regions:
+        await callback.answer(t(lang, "ue_no_regions"), show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, "ue_choose_region"),
+        reply_markup=entities_inline([(r.id, r.name) for r in regions], f"uereg:{target.id}"),
+    )
+
+
+@router.callback_query(F.data.startswith("uereg:"))
+async def ue_region_set(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    owner = await require_callback_user(callback, session)
+    if owner is None:
+        return
+    if owner.role != Role.OWNER:
+        await callback.answer(t(lang, "users_list_closed"), show_alert=True)
+        return
+    parts = (callback.data or "").split(":")  # uereg:{id}:{region_id}
+    if len(parts) != 3:
+        await callback.answer()
+        return
+    target = await get_user_full(session, int(parts[1]))
+    region = await get_region(session, int(parts[2]))
+    if target is None or target.id == owner.id or region is None:
+        await callback.answer(t(lang, "entity_not_found"), show_alert=True)
+        return
+    await edit_user(session, user=target, actor=owner, region_id=region.id)
+    await session.commit()
+    await callback.answer()
+    await callback.message.answer(
+        t(lang, "user_edited_ok", name=escape(target.full_name)) + f" — 🌐 {escape(region.name)}"
+    )

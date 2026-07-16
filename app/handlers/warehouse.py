@@ -6,6 +6,8 @@ Bo'lim tanlangach ikki usul chiqadi: (1) ИНН orqali topish, (2) aptekalar ro'
 Aptekalar faqat sotuvchining regioni bo'yicha ko'rinadi (soxta callback'ларга qarshi
 tanlangan apteka region + APPROVED bo'yicha qayta tekshiriladi)."""
 
+from decimal import Decimal
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -15,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ApprovalStatus, Pharmacy, Role, User
 from app.db.repositories import (
     create_warehouse_request,
+    drug_price_for,
     get_contract,
     get_drug,
     get_pharmacy,
@@ -31,6 +34,7 @@ from app.keyboards.reply import (
     main_menu,
     wh_cart_keyboard,
     wh_method_keyboard,
+    wh_payment_keyboard,
 )
 from app.services.listing import show_list
 from app.services.media import answer_media
@@ -76,8 +80,25 @@ def _contract_label(contract, lang: str) -> str:
     return f"Договор №{contract.number} ({date})"
 
 
+def _num(value) -> str:
+    d = Decimal(str(value or 0))
+    return f"{d:,.2f}"
+
+
+def _cart_line(lang: str, index: int, entry: dict) -> str:
+    price = Decimal(str(entry.get("price") or 0))
+    qty = int(entry["qty"])
+    return f"{index}. {entry['name']} — {qty} {t(lang, 'pcs')}. × {_num(price)} = {_num(price * qty)}"
+
+
+def _cart_total(cart: list[dict]) -> Decimal:
+    return sum(
+        (Decimal(str(c.get("price") or 0)) * int(c["qty"]) for c in cart), Decimal("0")
+    )
+
+
 def _cart_text(lang: str, cart: list[dict]) -> str:
-    lines = [f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}." for i, c in enumerate(cart, 1)]
+    lines = [_cart_line(lang, i, c) for i, c in enumerate(cart, 1)]
     return t(lang, "wh_cart_title") + "\n" + "\n".join(lines)
 
 
@@ -193,6 +214,27 @@ async def wh_pick_contract(callback: CallbackQuery, session: AsyncSession, state
         await callback.answer(t(lang, "flow_expired"), show_alert=True)
         return
     await state.update_data(contract_id=int(callback.data.split(":", 1)[1]), cart=[])
+    # Preparat narxi apteka boshlang'ich to'lov shartiga bog'liq — avval shuni so'raymiz.
+    await callback.message.answer(t(lang, "wh_choose_payment"), reply_markup=wh_payment_keyboard(lang))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wh_pay:"))
+async def wh_pick_payment(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    user = await _require_wh_user(callback, session, lang)
+    if user is None:
+        return
+    data = await state.get_data()
+    if not data.get("pharmacy_id"):
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
+        return
+    raw = callback.data.split(":", 1)[1]
+    if raw not in {"50", "100"}:
+        await callback.answer()
+        return
+    # Savat narx snapshot'lari shu foizga bog'liq — foiz o'zgarsa savat tozalanadi.
+    await state.update_data(payment_percent=int(raw), cart=[])
+    await callback.message.answer(t(lang, "wh_payment_set", percent=int(raw)))
     await _send_drug_choice(callback.message, session, user, lang, state)
     await callback.answer()
 
@@ -202,7 +244,7 @@ async def wh_pick_drug(callback: CallbackQuery, session: AsyncSession, state: FS
     if await _require_wh_user(callback, session, lang) is None:
         return
     data = await state.get_data()
-    if not data.get("pharmacy_id"):
+    if not data.get("pharmacy_id") or not data.get("payment_percent"):
         await callback.answer(t(lang, "flow_expired"), show_alert=True)
         return
     drug = await get_drug(session, int(callback.data.split(":", 1)[1]))
@@ -231,7 +273,15 @@ async def wh_qty(message: Message, session: AsyncSession, state: FSMContext, lan
         await state.set_state(None)
         return
     cart = data.get("cart", [])
-    cart.append({"drug_id": drug.id, "name": drug.name, "qty": int(raw)})
+    percent = int(data.get("payment_percent") or 100)
+    cart.append(
+        {
+            "drug_id": drug.id,
+            "name": drug.name,
+            "qty": int(raw),
+            "price": str(drug_price_for(drug, percent)),
+        }
+    )
     await state.update_data(cart=cart)
     await state.set_state(None)
     await message.answer(_cart_text(lang, cart), reply_markup=wh_cart_keyboard(lang))
@@ -255,9 +305,10 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
     # Double-tap himoyasi: state'ni yaratishdan oldin tozalaymiz.
     await state.clear()
     cart = data.get("cart", [])
-    if not cart or not data.get("pharmacy_id"):
+    if not cart or not data.get("pharmacy_id") or not data.get("payment_percent"):
         await callback.answer(t(lang, "cart_empty"), show_alert=True)
         return
+    percent = int(data["payment_percent"])
 
     pharmacy = await get_pharmacy(session, data["pharmacy_id"])
     if not _pharmacy_in_scope(rep, pharmacy):
@@ -271,10 +322,12 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
         if drug is not None:
             items.append((drug, entry["qty"]))
 
-    request = await create_warehouse_request(session, rep=rep, pharmacy=pharmacy, contract=contract, items=items)
+    request = await create_warehouse_request(
+        session, rep=rep, pharmacy=pharmacy, contract=contract, items=items, payment_percent=percent
+    )
     await session.commit()
 
-    detail = "\n".join(f"{i}. {c['name']} — {c['qty']} {t(lang, 'pcs')}." for i, c in enumerate(cart, 1))
+    detail = "\n".join(_cart_line(lang, i, c) for i, c in enumerate(cart, 1))
     await callback.message.answer(
         t(
             lang,
@@ -282,7 +335,9 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
             id=request.id,
             pharmacy=_ph_label(pharmacy) if pharmacy else "-",
             contract=_contract_label(contract, lang) if contract else "-",
+            percent=percent,
             detail=detail,
+            total=_num(_cart_total(cart)),
         )
     )
     await callback.answer()

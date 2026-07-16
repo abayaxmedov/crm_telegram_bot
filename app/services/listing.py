@@ -36,6 +36,7 @@ from app.db.repositories import (
     list_pharmacy_stock,
     list_report_authors,
     list_users,
+    list_wholesalers,
 )
 from app.i18n import role_label, t
 from app.services.security import OWNER_BALL_TARGET_ROLES, ball_transfer_target_role
@@ -188,7 +189,16 @@ def _sale_drug_row(d: Any, lang: str) -> str:
 
 
 def _drug_edit_row(d: Any, lang: str) -> str:
-    return f"#{d.id} | {escape(d.name)} ({float(d.price or 0):,.2f} | 💠 {int(d.ball or 0)})"
+    return (
+        f"#{d.id} | {escape(d.name)} (💵100%: {float(d.price_100 or 0):,.2f} | "
+        f"💳50%: {float(d.price_50 or 0):,.2f} | 💠 {int(d.ball or 0)})"
+    )
+
+
+def _wholesaler_row(w: Any, lang: str) -> str:
+    inn = escape(str(w.inn)) if w.inn else "-"
+    phone = escape(str(w.phone_number)) if w.phone_number else "-"
+    return f"#{w.id} | {escape(w.name)} | ИНН {inn} | {phone}"
 
 
 def _doc_dir_row(d: Any, lang: str) -> str:
@@ -265,11 +275,18 @@ def register_default_lists() -> None:
         label=lambda d: d.full_name,
         header_key="ball_choose_recipient", empty_key="ball_no_linked_doctors",
     ))
+    # Kundalik/tashrif: avval ЛПУ tanlanadi, keyin SHU ЛПУдаги doktorlar chiqadi.
+    register_list(ListSpec(
+        key="rep_lpu", pick_prefix="rep_lpu",
+        fetch=lambda s, u, c: list_lpus_visible(s, u, limit=5000),
+        label=lambda x: x.name,
+        header_key="report_pick_lpu", empty_key="report_no_lpus",
+    ))
     register_list(ListSpec(
         key="rep_tgt_doctor", pick_prefix="rep_tgt:doctor",
-        fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000),
+        fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000, lpu_id=c.get("lpu_id")),
         label=lambda d: d.full_name,
-        header_key="report_pick_doctor", empty_key="report_no_doctors",
+        header_key="report_pick_doctor", empty_key="report_no_doctors_in_lpu",
     ))
 
     # --- Dorixonalar (ko'rish/tanlash) ---
@@ -351,6 +368,32 @@ def register_default_lists() -> None:
         fetch=lambda s, u, c: list_users(s, limit=5000),
         label=lambda x: x.full_name, row=_users_row,
         header_key="last_users", empty_key="no_users",
+    ))
+
+    # --- Оптом / Оптомдан приход ---
+    register_list(ListSpec(
+        key="wholesaler", pick_prefix="wholesaler_info",
+        fetch=lambda s, u, c: list_wholesalers(s, only_active=False),
+        label=lambda w: w.name, row=_wholesaler_row,
+        header_key="wholesalers_header", empty_key="wholesalers_empty",
+    ))
+    register_list(ListSpec(
+        key="wi_ph", pick_prefix="wi_ph",
+        fetch=lambda s, u, c: list_pharmacies_visible(s, u, limit=5000),
+        label=_ph_label,
+        header_key="wi_choose_pharmacy", empty_key="sales_no_pharmacies",
+    ))
+    register_list(ListSpec(
+        key="wi_optom", pick_prefix="wi_optom",
+        fetch=lambda s, u, c: list_wholesalers(s),
+        label=lambda w: w.name, row=_wholesaler_row,
+        header_key="wi_choose_wholesaler", empty_key="wi_no_wholesalers",
+    ))
+    register_list(ListSpec(
+        key="wi_drug", pick_prefix="wi_drug",
+        fetch=lambda s, u, c: list_active_drugs(s),
+        label=lambda d: d.name,
+        header_key="wi_choose_drug", empty_key="sales_no_drugs",
     ))
 
     # --- ЛПУ (regional/medvakil) ---

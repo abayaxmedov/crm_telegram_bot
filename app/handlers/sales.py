@@ -3,7 +3,8 @@ from __future__ import annotations
 """Sotuv kiritish — medvakil VA regional menejer.
 
 Sotuvda dorixona va doktor tanlanadi; doktor balansidan dorining aksiya balli
-ayiriladi (manfiyga o'tishi mumkin). Doktorga xabar boradi (24 soatda o'chadi)."""
+ayiriladi (manfiyga o'tishi mumkin). Sotuvda doktorga xabar YUBORILMAYDI —
+doktor faqat ball tushishi (o'tkazma) tasdig'ini oladi."""
 
 from decimal import Decimal
 
@@ -30,7 +31,7 @@ from app.keyboards.reply import main_menu, sale_cart_keyboard
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.notify import send_to_doctor
-from app.services.security import can_record_sales, pharmacy_visible_to
+from app.services.security import can_record_sales, doctor_visible_to, pharmacy_visible_to
 
 router = Router(name="sales")
 
@@ -53,12 +54,10 @@ async def _require_seller(callback: CallbackQuery, session: AsyncSession, lang: 
 
 
 def _entity_in_scope(user: User, entity) -> bool:
-    """Tanlangan doktor/dorixona APPROVED va sotuvchi ko'lamida (region) bo'lishi shart."""
+    """Tanlangan doktor APPROVED va sotuvchi ko'lamида (o'zi yaratgan) bo'lishi shart."""
     if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
         return False
-    if user.role == Role.OWNER:
-        return True
-    return entity.region_id == user.region_id
+    return doctor_visible_to(user, entity)
 
 
 def _num(value) -> str:
@@ -173,7 +172,7 @@ async def sale_qty(message: Message, session: AsyncSession, state: FSMContext, l
             "drug_id": drug.id,
             "name": drug.name,
             "qty": qty,
-            "price": str(drug.price or 0),
+            "price": str(drug.price_100 or drug.price or 0),  # sotuv 100% narxда
             "ball": int(drug.ball or 0),
         }
     )
@@ -242,7 +241,7 @@ async def sale_cart_finish(callback: CallbackQuery, session: AsyncSession, state
         )
     )
 
-    # Doktorga xabar (botga ulangan bo'lsa) — 24 soatda o'chadi.
+    # Doktorga ball AYIRILGANI haqida xabar (botga ulangan bo'lsa) — 6 soatda avto-o'chadi.
     if doctor is not None and sale.total_ball > 0:
         doctor_linked = await get_doctor_with_user(session, doctor.id)
         if doctor_linked is not None and doctor_linked.bot_user is not None:

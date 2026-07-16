@@ -31,6 +31,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     ball = t(lang, "btn_ball")
     drugs = t(lang, "btn_drugs")
     webapp = t(lang, "btn_webapp")
+    wholesalers = t(lang, "btn_wholesalers")
 
     if role == Role.OWNER:
         # Owner: dori katalogини (🧪) boshqaradi; material yuklash PRODUCT menejerда, owner faqat ko'radi.
@@ -38,7 +39,8 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [admin, regions],
             [doctors, pharmacies],
             [drugs, ball],
-            [t(lang, "btn_doctor_approve"), t(lang, "btn_pharmacy_approve")],
+            [wholesalers, t(lang, "btn_wi_approve")],
+            [t(lang, "btn_pharmacy_approve")],
             [t(lang, "btn_wh_approve")],
             [daily, requests],
             [finance, salary],
@@ -50,7 +52,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
         rows = [
             [reports, daily],
             [doctors, pharmacies],
-            [t(lang, "btn_doctor_approve")],
+            [t(lang, "btn_wi_approve")],
             [finance, ball],
             [materials, webapp],
             [language],
@@ -79,6 +81,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [doctors, pharmacies],
             [t(lang, "btn_lpu")],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
+            [t(lang, "btn_wholesale_income")],
             [ball, daily],
             [salary, materials],
             [reports, language],
@@ -91,8 +94,8 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [pharmacies, language],
         ]
     elif role == Role.DOCTOR:
-        # Доктор: faqat til tanlash.
-        rows = [[language]]
+        # Доктор: salomlashuvsiz — faqat balans + til.
+        rows = [[t(lang, "btn_doctor_balance")], [language]]
     else:
         # ASSISTANT (deprecated), PHARMACY, noma'lum — faqat til.
         rows = [[language]]
@@ -165,14 +168,58 @@ def pharmacies_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
 
 
 def user_manage_keyboard(lang: str, user_id: int, is_active: bool) -> InlineKeyboardMarkup:
-    """Xodim kartasi ostidagi boshqaruv (faqat owner): faolsizlantirish/o'chirish."""
+    """Xodim kartasi ostidagi boshqaruv (faqat owner): tahrirlash/faolsizlantirish/o'chirish."""
     toggle_key = "btn_user_deactivate" if is_active else "btn_user_activate"
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_user_edit"), callback_data=f"user_edit:{user_id}")],
             [InlineKeyboardButton(text=t(lang, toggle_key), callback_data=f"user_toggle:{user_id}")],
             [InlineKeyboardButton(text=t(lang, "btn_user_delete"), callback_data=f"user_del:{user_id}")],
         ]
     )
+
+
+def user_edit_menu_keyboard(lang: str, user_id: int) -> InlineKeyboardMarkup:
+    """Xodimda nimani tahrirlash: ism/telefon/rol/region."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "btn_ue_name"), callback_data=f"ue_name:{user_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_ue_phone"), callback_data=f"ue_phone:{user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text=t(lang, "btn_ue_role"), callback_data=f"ue_role:{user_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_ue_region"), callback_data=f"ue_region:{user_id}"),
+            ],
+        ]
+    )
+
+
+def doctor_edit_menu_keyboard(lang: str, doctor_id: int) -> InlineKeyboardMarkup:
+    """Doktorda nimani tahrirlash: ism/telefon/kategoriya/region/ЛПУ."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "btn_de_name"), callback_data=f"de_name:{doctor_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_de_phone"), callback_data=f"de_phone:{doctor_id}"),
+            ],
+            [
+                InlineKeyboardButton(text=t(lang, "btn_de_category"), callback_data=f"de_cat:{doctor_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_de_region"), callback_data=f"de_region:{doctor_id}"),
+            ],
+            [InlineKeyboardButton(text=t(lang, "btn_de_lpu"), callback_data=f"de_lpu:{doctor_id}")],
+        ]
+    )
+
+
+def user_edit_role_keyboard(lang: str, user_id: int) -> InlineKeyboardMarkup:
+    """Xodimga yangi rol tanlash (owner yarata oladigan rollar)."""
+    rows = [
+        [InlineKeyboardButton(text=role_label(lang, role), callback_data=f"uerole:{user_id}:{role.value}")]
+        for role in ROLE_CREATE_ORDER
+        if can_create_role(Role.OWNER, role)
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def user_delete_confirm_keyboard(lang: str, user_id: int) -> InlineKeyboardMarkup:
@@ -192,6 +239,24 @@ def lpu_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
         rows.append([t(lang, "btn_lpu_list")])
     rows.append([t(lang, "btn_menu")])
     return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
+
+
+def wholesalers_menu(lang: str) -> ReplyKeyboardMarkup:
+    """Оптомлар bo'limi — faqat owner (yaratish + ro'yxat)."""
+    return reply_keyboard(
+        [[t(lang, "btn_wholesaler_add"), t(lang, "btn_wholesaler_list")], [t(lang, "btn_menu")]],
+        placeholder=t(lang, "ph_select_section"),
+    )
+
+
+def wi_cart_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Оптомдан приход savati — yana qo'shish / yakunlash."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_cart_add_more"), callback_data="wi_cart:add")],
+            [InlineKeyboardButton(text=t(lang, "btn_cart_finish"), callback_data="wi_cart:finish")],
+        ]
+    )
 
 
 def drugs_menu(lang: str) -> ReplyKeyboardMarkup:
@@ -418,6 +483,18 @@ def wh_cart_keyboard(lang: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=t(lang, "btn_cart_add_more"), callback_data="wh_cart:add")],
             [InlineKeyboardButton(text=t(lang, "btn_cart_finish"), callback_data="wh_cart:finish")],
+        ]
+    )
+
+
+def wh_payment_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Sklad zayavka: apteka boshlang'ich to'lov shartи — 100% yoki 50%.
+
+    Tanlov dori narxini belgilaydi (price_100 / price_50)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_pay_100"), callback_data="wh_pay:100")],
+            [InlineKeyboardButton(text=t(lang, "btn_pay_50"), callback_data="wh_pay:50")],
         ]
     )
 

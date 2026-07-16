@@ -317,9 +317,14 @@ class Drug(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
-    stock: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # qoldiq (упак.)
-    # Narx va aksiya balli (har upakovka) — faqat owner kiritadi/tahrirlaydi.
+    stock: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # LEGACY (ombor cheksiz)
+    # LEGACY yagona narx (price_100/price_50 bilan almashtirilgan).
     price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    # Narx apteka BOSHLANG'ICH TO'LOV shartiga qarab (zayavkada tanlanadi):
+    #   price_100 — 100% oldindan to'laganda (arzonroq);
+    #   price_50  — 50% oldindan + qolgani keyin (bo'lib to'lash — qimmatroq).
+    price_100: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
+    price_50: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
     ball: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # LEGACY: eski pul-bonus stavkasi (ball tizimi bilan almashtirilgan).
     doctor_bonus_per_pack: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0")
@@ -397,6 +402,8 @@ class WarehouseRequest(Base, TimestampMixin):
     rep_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"))
     contract_id: Mapped[int | None] = mapped_column(ForeignKey("contracts.id", ondelete="SET NULL"))
+    # Apteka boshlang'ich to'lov sharti: 100 (to'liq, arzonroq narx) yoki 50 (bo'lib to'lash, qimmatroq).
+    payment_percent: Mapped[int] = mapped_column(Integer, default=100, server_default="100")
     status: Mapped[WarehouseStatus] = mapped_column(
         enum_type(WarehouseStatus), default=WarehouseStatus.NEW, server_default=WarehouseStatus.NEW.value, index=True
     )
@@ -416,9 +423,65 @@ class WarehouseRequestItem(Base):
     request_id: Mapped[int] = mapped_column(ForeignKey("warehouse_requests.id", ondelete="CASCADE"), index=True)
     drug_id: Mapped[int] = mapped_column(ForeignKey("drugs.id", ondelete="SET NULL"))
     drug_name: Mapped[str] = mapped_column(String(255))
-    quantity: Mapped[int] = mapped_column(Integer)
+    quantity: Mapped[int] = mapped_column(Integer)  # medvakil so'ragan miqdor
+    # Operator otgruzkada kiritgan HAQIQIY jo'natilgan miqdor — apteka qoldig'i
+    # aynan shunga qarab o'zgaradi (tasdiqlashning o'zi qoldiqni o'zgartirmaydi).
+    shipped_quantity: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # To'lov turiga mos narx snapshot'i (zayavka paytidagi price_100 yoki price_50).
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
 
     request: Mapped[WarehouseRequest] = relationship(back_populates="items")
+
+
+class Wholesaler(Base, TimestampMixin):
+    """Оптом — dorilarni ulgurji yetkazib beruvchi. Faqat OWNER yaratadi.
+
+    Regionga bog'lanmaydi — optomlar butun tarmoqda umumiy."""
+
+    __tablename__ = "wholesalers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    inn: Mapped[str | None] = mapped_column(String(32))
+    phone_number: Mapped[str | None] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class WholesaleIncome(Base, TimestampMixin):
+    """Оптомдан приход — apteka optomdan dori oldi (medvakil kiritadi).
+
+    TOP menejer REAL-TIME tasdiqlaydi; APPROVED bo'lgandagina apteka qoldig'i oshadi."""
+
+    __tablename__ = "wholesale_incomes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rep_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"))
+    wholesaler_id: Mapped[int | None] = mapped_column(ForeignKey("wholesalers.id", ondelete="SET NULL"))
+    status: Mapped[ApprovalStatus] = mapped_column(
+        enum_type(ApprovalStatus), default=ApprovalStatus.PENDING,
+        server_default=ApprovalStatus.PENDING.value, index=True,
+    )
+
+    rep: Mapped[User] = relationship()
+    pharmacy: Mapped[Pharmacy | None] = relationship()
+    wholesaler: Mapped[Wholesaler | None] = relationship()
+    items: Mapped[list["WholesaleIncomeItem"]] = relationship(
+        back_populates="income", cascade="all, delete-orphan"
+    )
+
+
+class WholesaleIncomeItem(Base):
+    __tablename__ = "wholesale_income_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    income_id: Mapped[int] = mapped_column(ForeignKey("wholesale_incomes.id", ondelete="CASCADE"), index=True)
+    drug_id: Mapped[int] = mapped_column(ForeignKey("drugs.id", ondelete="SET NULL"))
+    drug_name: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[int] = mapped_column(Integer)
+
+    income: Mapped[WholesaleIncome] = relationship(back_populates="items")
 
 
 class VisitDiary(Base):
