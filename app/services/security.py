@@ -13,6 +13,7 @@ ROLE_CREATE_ORDER: tuple[Role, ...] = (
     Role.MANAGER,
     Role.OPERATOR,
     Role.DOCTOR,
+    Role.PHARMACY,  # dorixona mas'ul shaxsi (telefon orqali dorixonaga bog'lanadi)
 )
 
 # Region so'raladigan rollar (owner user yaratganda).
@@ -89,6 +90,28 @@ def can_add_wholesale_income(role: Role) -> bool:
 
 def can_approve_wholesale_income(role: Role) -> bool:
     """Оптомдан приход tasdig'i — TOP menejer (+owner)."""
+    return role in {Role.OWNER, Role.TOP_MANAGER}
+
+
+def can_approve_entities(role: Role) -> bool:
+    """Doktor/ЛПУ MAQOMINI tasdiqlash — TOP menejer (+owner).
+
+    Bu yaratishga to'siq emas: tasdiq faqat sotuv/ball/sovg'a darvozasini ochadi."""
+    return role in {Role.OWNER, Role.TOP_MANAGER}
+
+
+def can_send_ball_to_pharmacy(role: Role) -> bool:
+    """Dorixona mas'ul shaxsiga ball — medvakil va regional menejer (+owner)."""
+    return role in {Role.OWNER, Role.MANAGER, Role.REGIONAL_MANAGER}
+
+
+def can_send_gift(role: Role) -> bool:
+    """Совға балл yuborish — medvakil va regional menejer (+owner nazorat uchun)."""
+    return role in {Role.OWNER, Role.MANAGER, Role.REGIONAL_MANAGER}
+
+
+def can_approve_gift(role: Role) -> bool:
+    """Совға балл tasdig'i — TOP menejer (+owner)."""
     return role in {Role.OWNER, Role.TOP_MANAGER}
 
 

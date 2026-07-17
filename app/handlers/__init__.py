@@ -10,6 +10,7 @@ from app.handlers import (
     directories,
     drugs_admin,
     finance,
+    gift,
     listing,
     lpu,
     materials,
@@ -21,6 +22,7 @@ from app.handlers import (
     requests,
     salary,
     sales,
+    top_approvals,
     warehouse,
     webapp_link,
     wholesale_income,
@@ -39,6 +41,7 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(drugs_admin.router)
     dp.include_router(wholesalers.router)
     dp.include_router(ball.router)
+    dp.include_router(gift.router)
     dp.include_router(webapp_link.router)
     dp.include_router(directories.router)
     dp.include_router(lpu.router)
@@ -51,6 +54,7 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(warehouse.router)
     dp.include_router(wholesale_income.router)
     dp.include_router(rep_finance.router)
+    dp.include_router(top_approvals.router)
     dp.include_router(operator.router)
     dp.include_router(finance.router)
     dp.include_router(salary.router)

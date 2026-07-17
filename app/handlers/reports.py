@@ -33,8 +33,12 @@ from app.keyboards.reply import (
 )
 from app.services.listing import show_list
 from app.services.media import answer_media
+from app.handlers.directories import DoctorFlow
+from app.handlers.lpu import LpuFlow
 from app.services.security import (
     REGION_SCOPED_REPORT_ROLES,
+    can_add_doctors,
+    can_manage_lpu,
     doctor_visible_to,
     pharmacy_visible_to,
     reports_viewer_roles,
@@ -58,8 +62,10 @@ class DailyReportFlow(StatesGroup):
 
 
 def _target_in_scope(user: User, entity) -> bool:
-    """Tanlangan doktor APPROVED va yozuvchining ko'lamида (o'zi yaratgan) bo'lsin."""
-    if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
+    """Tanlangan doktor yozuvchining ko'lamида bo'lsin.
+
+    Maqom (⏳/✅) tekshirilMAYDI — tasdiqlanmagan doktorga ham hisobot yoziladi."""
+    if entity is None:
         return False
     return doctor_visible_to(user, entity)
 
@@ -101,6 +107,44 @@ async def report_where(callback: CallbackQuery, session: AsyncSession, state: FS
     # Doktor tanlash ikki bosqichли: avval ЛПУ, keyin shu ЛПУдаги doktorlar.
     key = "rep_lpu" if target_type == "doctor" else "rep_tgt_pharmacy"
     await show_list(callback.message, session, user, lang, state, key)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "rep_new:lpu")
+async def report_new_lpu(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Kundalikда ЛПУ yo'q — shu yerдан yaratish (yaratilgach oqim davom etadi)."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if user.role not in REPORT_WRITER_ROLES or not can_manage_lpu(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    # `_after` markerи — yaratиш tugagach lpu.py kundalik oqimига qaytaradi.
+    await state.set_state(LpuFlow.name)
+    await state.update_data(_after="report")
+    await callback.message.answer(t(lang, "enter_lpu_name"))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "rep_new:doc")
+async def report_new_doctor(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Kundalikда bu ЛПУда doktor yo'q — shu yerдан yaratish.
+
+    ЛПУ allaqачон tanlanган, shuning uchun doktor oqimида ЛПУ/region qayta so'ralmaydi."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if user.role not in REPORT_WRITER_ROLES or not can_add_doctors(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    data = await state.get_data()
+    lpu = await get_lpu(session, data.get("lpu_id") or 0)
+    if lpu is None:
+        await callback.answer(t(lang, "flow_expired"), show_alert=True)
+        return
+    await state.set_state(DoctorFlow.full_name)
+    await state.update_data(_after="report", lpu_id=lpu.id)
+    await callback.message.answer(t(lang, "enter_doctor_fullname"))
     await callback.answer()
 
 

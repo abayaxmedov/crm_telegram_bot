@@ -33,13 +33,22 @@ from app.db.repositories import (
     list_lpus_visible,
     list_materials,
     list_pharmacies_visible,
+    pharmacies_for_ball_transfer,
     list_pharmacy_stock,
+    list_pending_warehouse_requests,
     list_report_authors,
     list_users,
     list_wholesalers,
+    warehouse_request_total,
 )
 from app.i18n import role_label, t
-from app.services.security import OWNER_BALL_TARGET_ROLES, ball_transfer_target_role
+from app.services.entity_approvals import badge
+from app.services.security import (
+    OWNER_BALL_TARGET_ROLES,
+    ball_transfer_target_role,
+    can_add_doctors,
+    can_manage_lpu,
+)
 
 PAGE_SIZE = 10
 PER_ROW = 5
@@ -60,6 +69,9 @@ class ListSpec:
     row: RowFn | None = None  # ixtiyoriy maxsus qator (item, lang) -> str
     searchable: bool = True
     id_of: Callable[[Any], int] = field(default=lambda o: o.id)
+    # Ro'yxat BO'SH bo'lganда ko'rsatiladigan "yaratish" tugmasи:
+    # (user) -> (i18n_kalit, callback_data) yoki None (ruxsati yo'q bo'lsa).
+    empty_action: Callable[[User], tuple[str, str] | None] | None = None
 
 
 _REGISTRY: dict[str, ListSpec] = {}
@@ -159,6 +171,14 @@ async def show_list(
         text = f"{header}\n{info}\n\n{rows}"
 
     kb = _build_keyboard(spec, [spec.id_of(it) for it in chunk], page, pages, bool(query), lang)
+    # Bo'sh ro'yxat (qidiruvсиз) — foydalanuvчи shu yerdaн yangi element yarata olsин.
+    if not chunk and not query and spec.empty_action is not None:
+        action = spec.empty_action(user)
+        if action is not None:
+            text_key, callback_data = action
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=t(lang, text_key), callback_data=callback_data)]]
+            )
 
     if edit:
         try:
@@ -195,6 +215,27 @@ def _drug_edit_row(d: Any, lang: str) -> str:
     )
 
 
+def _wh_req_label(r: Any) -> str:
+    """Qidiruv kalitи: dorixona NOMI + ИНН (operator ikkalasи bo'yicha ham qidiradи)."""
+    ph = r.pharmacy
+    if ph is None:
+        return f"#{r.id}"
+    parts = [ph.name or ""]
+    if ph.filial:
+        parts.append(str(ph.filial))
+    if ph.inn:
+        parts.append(str(ph.inn))
+    return " ".join(p for p in parts if p)
+
+
+def _wh_req_row(r: Any, lang: str) -> str:
+    ph = r.pharmacy
+    name = _ph_label(ph) if ph is not None else "-"
+    inn = escape(str(ph.inn)) if ph is not None and ph.inn else "-"
+    total = float(warehouse_request_total(r))
+    return f"#{r.id} | {escape(name)} | ИНН {inn} | 💰 {total:,.2f}"
+
+
 def _wholesaler_row(w: Any, lang: str) -> str:
     inn = escape(str(w.inn)) if w.inn else "-"
     phone = escape(str(w.phone_number)) if w.phone_number else "-"
@@ -206,7 +247,10 @@ def _doc_dir_row(d: Any, lang: str) -> str:
     bu = getattr(d, "bot_user", None)
     tg = bu.telegram_id if bu and bu.telegram_id else "—"
     uname = f"@{escape(bu.username)}" if bu and bu.username else "—"
-    return f"#{d.id} | {escape(d.full_name)} | {phone} | 🆔 {tg} | {uname} | 💠 {int(d.ball_balance or 0)}"
+    return (
+        f"{badge(d.approval_status)} #{d.id} | {escape(d.full_name)} | {phone} | "
+        f"🆔 {tg} | {uname} | 💠 {int(d.ball_balance or 0)}"
+    )
 
 
 def _ph_dir_row(p: Any, lang: str) -> str:
@@ -265,9 +309,22 @@ def register_default_lists() -> None:
     ))
     register_list(ListSpec(
         key="sale_doc", pick_prefix="sale_doc",
-        fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000),
+        # Sotuvда faqat ✅ tasdiqlanган doktorlar (maqom bu yerда DARVOZA).
+        fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000, only_approved=True),
         label=lambda d: d.full_name,
         header_key="sales_choose_doctor", empty_key="sales_no_doctors",
+    ))
+    register_list(ListSpec(
+        key="gift_doc", pick_prefix="gift_doc",
+        fetch=lambda s, u, c: doctors_for_ball_transfer(s, u),
+        label=lambda d: d.full_name,
+        header_key="gift_choose_doctor", empty_key="gift_no_doctors",
+    ))
+    register_list(ListSpec(
+        key="ball_pha", pick_prefix="ball_to_pha",
+        fetch=lambda s, u, c: pharmacies_for_ball_transfer(s, u),
+        label=_ph_label,
+        header_key="ball_choose_pharmacy", empty_key="ball_no_linked_pharmacies",
     ))
     register_list(ListSpec(
         key="ball_doc", pick_prefix="ball_to_doc",
@@ -280,13 +337,19 @@ def register_default_lists() -> None:
         key="rep_lpu", pick_prefix="rep_lpu",
         fetch=lambda s, u, c: list_lpus_visible(s, u, limit=5000),
         label=lambda x: x.name,
+        row=lambda x, lang: f"{badge(x.approval_status)} #{x.id} | {escape(x.name)}",
         header_key="report_pick_lpu", empty_key="report_no_lpus",
+        # ЛПУ yo'q bo'lса — shu yerдан yaratish (ruxsati borlarга).
+        empty_action=lambda u: ("btn_create_lpu_here", "rep_new:lpu") if can_manage_lpu(u.role) else None,
     ))
     register_list(ListSpec(
         key="rep_tgt_doctor", pick_prefix="rep_tgt:doctor",
         fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000, lpu_id=c.get("lpu_id")),
         label=lambda d: d.full_name,
+        row=lambda d, lang: f"{badge(d.approval_status)} #{d.id} | {escape(d.full_name)}",
         header_key="report_pick_doctor", empty_key="report_no_doctors_in_lpu",
+        # Bu ЛПУда doktor yo'q bo'lса — shu yerдан yaratish (ЛПУ allaqачон tanlanган).
+        empty_action=lambda u: ("btn_create_doctor_here", "rep_new:doc") if can_add_doctors(u.role) else None,
     ))
 
     # --- Dorixonalar (ko'rish/tanlash) ---
@@ -370,6 +433,16 @@ def register_default_lists() -> None:
         header_key="last_users", empty_key="no_users",
     ))
 
+    # --- Складга заявка tasdig'и (operator): ИНН yoki dorixona nomи bo'yicha qidiriladi ---
+    register_list(ListSpec(
+        key="wh_req", pick_prefix="wh_req",
+        # limit yo'q darajада katta — 20 talik eski chegара sabab zayavka "yo'qolиб"
+        # qolmasин; sahifalash ro'yxatни baribир 10 tadан ko'rsatadи.
+        fetch=lambda s, u, c: list_pending_warehouse_requests(s, limit=5000),
+        label=_wh_req_label, row=_wh_req_row,
+        header_key="wh_approve_header", empty_key="wh_approve_empty",
+    ))
+
     # --- Оптом / Оптомдан приход ---
     register_list(ListSpec(
         key="wholesaler", pick_prefix="wholesaler_info",
@@ -401,6 +474,7 @@ def register_default_lists() -> None:
         key="lpu", pick_prefix="lpu_info",
         fetch=lambda s, u, c: list_lpus_visible(s, u, limit=5000),
         label=lambda x: x.name,
+        row=lambda x, lang: f"{badge(x.approval_status)} #{x.id} | {escape(x.name)}",
         header_key="lpus_header", empty_key="lpus_empty",
     ))
 

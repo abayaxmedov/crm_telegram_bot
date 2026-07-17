@@ -47,9 +47,10 @@ class ListSearch(StatesGroup):
 
 
 def _entity_in_scope(user, entity, *, operator_ok: bool = False) -> bool:
-    """Doktor kartasi uchun ko'lam: markaziy `doctor_visible_to` bilan bir xil
-    (regional/medvakil => faqat o'zi yaratgan)."""
-    if entity is None or entity.approval_status != ApprovalStatus.APPROVED:
+    """Doktor kartasi uchun ko'lam: markaziy `doctor_visible_to` bilan bir xil.
+
+    Maqom tekshirilMAYDI — tasdiqlanmagan doktor kartasi ham ochiladi (⏳ belgisi bilan)."""
+    if entity is None:
         return False
     if operator_ok and user.role == Role.OPERATOR:
         return True
@@ -260,6 +261,6 @@ async def lpu_card(callback: CallbackQuery, session: AsyncSession, lang: str) ->
             lang, "lpu_card",
             id=lpu.id, name=escape(lpu.name),
             region=safe(lpu.region.name if lpu.region else None),
-            address=safe(lpu.address), phone=safe(lpu.phone_number),
+            address=safe(lpu.address),
         )
     )

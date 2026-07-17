@@ -17,6 +17,7 @@ from app.db.repositories import add_lpu
 from app.handlers.utils import clean_optional, require_user
 from app.i18n import t, variants
 from app.keyboards.reply import lpu_menu
+from app.services.entity_approvals import notify_top_new_lpu
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import can_manage_lpu
@@ -26,8 +27,7 @@ router = Router(name="lpu")
 
 class LpuFlow(StatesGroup):
     name = State()
-    address = State()
-    phone = State()
+    address = State()  # oxirgi bosqich — telefon so'ralmaydi
 
 
 @router.message(F.text.in_(variants("btn_lpu")))
@@ -82,13 +82,6 @@ async def lpu_name(message: Message, state: FSMContext, lang: str) -> None:
 
 
 @router.message(LpuFlow.address)
-async def lpu_address(message: Message, state: FSMContext, lang: str) -> None:
-    await state.update_data(address=clean_optional(message.text))
-    await state.set_state(LpuFlow.phone)
-    await message.answer(t(lang, "enter_lpu_phone"))
-
-
-@router.message(LpuFlow.phone)
 async def lpu_finish(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_user(message, session)
     if user is None:
@@ -101,17 +94,29 @@ async def lpu_finish(message: Message, session: AsyncSession, state: FSMContext,
     lpu = await add_lpu(
         session,
         name=data["name"],
-        address=data.get("address"),
-        phone_number=clean_optional(message.text),
+        address=clean_optional(message.text),
         creator=user,
         region_id=user.region_id,
     )
     await session.commit()
+    after = data.get("_after")
     await state.clear()
+    saved_text = t(lang, "lpu_saved_pending", id=lpu.id, name=escape(lpu.name))
+    # TOP menejerga REAL-TIME tasdiq so'rovi (maqom — faqat belgi, ЛПУ darrov ishlatiladi).
+    await notify_top_new_lpu(message.bot, session, lpu.id)
+
+    if after == "report":
+        # Kundalik oqimидан kelgan — menyuга emas, shu yangi ЛПУ doktorlarига o'tamiz
+        # (doktor bo'lmasa u yerда «➕ Доктор яратиш» tugmasи chiqadi).
+        await message.answer(saved_text)
+        await state.update_data(lpu_id=lpu.id)
+        await show_list(message, session, user, lang, state, "rep_tgt_doctor", ctx={"lpu_id": lpu.id})
+        return
+
     await answer_media(
         message,
         screen="done",
-        text=t(lang, "lpu_saved", id=lpu.id, name=escape(lpu.name)),
+        text=saved_text,
         lang=lang,
         reply_markup=lpu_menu(lang, can_add=can_manage_lpu(user.role)),
     )

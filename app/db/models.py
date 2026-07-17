@@ -48,6 +48,9 @@ class BallTxKind(str, enum.Enum):
     MINT = "mint"                # owner -> TOP menejer (emissiya, ayirilmaydi)
     TRANSFER = "transfer"        # zanjir bo'ylab o'tkazma (qabul qilinganda ayiriladi)
     SALE_DEDUCT = "sale_deduct"  # sotuv kiritilganda doktordan avtomatik ayirish
+    # Совға: medvakil/regional -> DOKTOR, yuboruvchi balansidan ayiriladi (TRANSFER kabi),
+    # lekin tasdiqni doktor emas — TOP menejer beradi.
+    GIFT = "gift"
 
 
 class BallTxStatus(str, enum.Enum):
@@ -167,6 +170,7 @@ class Doctor(Base, TimestampMixin):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     manager: Mapped[User | None] = relationship(foreign_keys=[manager_id])
+    bot_user: Mapped[User | None] = relationship(foreign_keys=[user_id])
     region: Mapped[Region | None] = relationship()
     lpu: Mapped["Lpu | None"] = relationship()
     created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
@@ -183,6 +187,10 @@ class Pharmacy(Base, TimestampMixin):
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
     responsible_person: Mapped[str | None] = mapped_column(String(255))
+    # Mas'ul shaxsning bot akkаunti — telefon orqali bog'lanadi (doktor bilan bir xil naqsh).
+    # Faqat bog'langan dorixonaga ball yuborish mumkin (u o'zi tasdiqlaydi).
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    ball_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
     # ИНН va филиал (test3640bot: "мунавара (Филиал: 1)").
@@ -197,7 +205,9 @@ class Pharmacy(Base, TimestampMixin):
         index=True,
     )
 
-    manager: Mapped[User | None] = relationship()
+    manager: Mapped[User | None] = relationship(foreign_keys=[manager_id])
+    # Mas'ul shaxsning bot akkаunti (telefon orqali bog'lanadi).
+    bot_user: Mapped[User | None] = relationship(foreign_keys=[user_id])
     region: Mapped[Region | None] = relationship()
 
     contracts: Mapped[list["Contract"]] = relationship(back_populates="pharmacy")
@@ -214,9 +224,15 @@ class Lpu(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
     address: Mapped[str | None] = mapped_column(String(500))
-    phone_number: Mapped[str | None] = mapped_column(String(64))
+    # Telefon raqami ATAYLAB yo'q — ЛПУ muassasa, aloqa doktor kartasida.
     region_id: Mapped[int | None] = mapped_column(ForeignKey("regions.id", ondelete="SET NULL"), index=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Maqom TO'SIQ EMAS — faqat belgi (⏳/✅). Tasdiqsiz ЛПУга ham doktor bog'lanadi
+    # va hisobot yoziladi; TOP menejer tasdig'i nazorat uchun.
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        enum_type(ApprovalStatus), default=ApprovalStatus.PENDING,
+        server_default=ApprovalStatus.PENDING.value, index=True,
+    )
 
     region: Mapped[Region | None] = relationship()
     created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id])
@@ -535,6 +551,8 @@ class BallTransaction(Base):
     from_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     to_doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id", ondelete="SET NULL"), index=True)
+    # Dorixona mas'ul shaxsига o'tkazma (doktor bilan bir xil mexanika — qabul qiluvchи tasdiqlaydi).
+    to_pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"), index=True)
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -542,6 +560,7 @@ class BallTransaction(Base):
     from_user: Mapped["User | None"] = relationship(foreign_keys=[from_user_id])
     to_user: Mapped["User | None"] = relationship(foreign_keys=[to_user_id])
     to_doctor: Mapped["Doctor | None"] = relationship(foreign_keys=[to_doctor_id])
+    to_pharmacy: Mapped["Pharmacy | None"] = relationship(foreign_keys=[to_pharmacy_id])
 
 
 class ScheduledDeletion(Base):

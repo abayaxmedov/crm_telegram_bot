@@ -12,7 +12,6 @@ from app.db.repositories import (
     get_pharmacy,
     get_warehouse_request,
     list_pending_pharmacies,
-    list_pending_warehouse_requests,
     set_pharmacy_status,
     set_warehouse_status,
     warehouse_request_total,
@@ -22,6 +21,7 @@ from app.handlers.filters import RoleFilter
 from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import t, variants
 from app.services.approvals import entity_approve_keyboard
+from app.services.listing import show_list
 from app.services.security import can_approve_pharmacies, can_approve_warehouse
 
 router = Router(name="operator")
@@ -69,17 +69,34 @@ def _approve_kb(lang: str, request_id: int) -> InlineKeyboardMarkup:
 
 
 @router.message(F.text.in_(variants("btn_wh_approve")), RoleFilter(Role.OPERATOR, Role.OWNER))
-async def wh_approve_list(message: Message, session: AsyncSession, lang: str) -> None:
+async def wh_approve_list(message: Message, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Tasdiq kutayotgan zayavkalar — sahifalangan ro'yxat + ИНН/nom bo'yicha qidiruv.
+
+    Avval har zayavka alohida karta bo'lib yuborilardi (20 tagacha xabar) — operator
+    puli tushgan dorixonani topolmasdi. Endi 🔍 orqali ИНН yoki dorixona nomi bilan
+    topib, ID tugmasini bosadi."""
     user = await require_user(message, session)
     if user is None:
         return
-    requests = await list_pending_warehouse_requests(session)
-    if not requests:
-        await message.answer(t(lang, "wh_approve_empty"))
+    await state.clear()
+    await show_list(message, session, user, lang, state, "wh_req")
+
+
+@router.callback_query(F.data.startswith("wh_req:"))
+async def wh_req_card(callback: CallbackQuery, session: AsyncSession, lang: str) -> None:
+    """Ro'yxatdagi ID tugmasi — zayavka kartasi + 🚚/❌ tugmalari."""
+    user = await require_callback_user(callback, session)
+    if user is None:
         return
-    await message.answer(t(lang, "wh_approve_header"))
-    for request in requests:
-        await message.answer(_card(lang, request), reply_markup=_approve_kb(lang, request.id))
+    if not can_approve_warehouse(user.role):
+        await callback.answer(t(lang, "section_closed"), show_alert=True)
+        return
+    request = await get_warehouse_request(session, int(callback.data.split(":", 1)[1]))
+    if request is None or request.status != WarehouseStatus.NEW:
+        await callback.answer(t(lang, "wh_request_not_found"), show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(_card(lang, request), reply_markup=_approve_kb(lang, request.id))
 
 
 class WarehouseShipFlow(StatesGroup):

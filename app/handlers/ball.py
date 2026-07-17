@@ -29,6 +29,7 @@ from app.db.repositories import (
     get_ball_balance,
     get_ball_transaction,
     get_doctor_with_user,
+    get_pharmacy_with_user,
     pending_outgoing_ball,
     period_window,
     schedule_deletion,
@@ -38,6 +39,7 @@ from app.i18n import ball_kind_label, ball_status_label, normalize, role_label, 
 from app.keyboards.reply import (
     ball_accept_keyboard,
     ball_inline_keyboard,
+    ball_target_kind_keyboard,
     excel_periods_keyboard,
 )
 from app.services.excel import build_xlsx
@@ -45,6 +47,8 @@ from app.services.listing import show_list
 from app.services.notify import DOCTOR_MESSAGE_TTL, send_to_doctor
 from app.services.security import (
     OWNER_BALL_TARGET_ROLES,
+    can_send_ball_to_pharmacy,
+    pharmacy_visible_to,
     ball_transfer_target_role,
     can_use_ball,
     can_view_hierarchy_reports,
@@ -90,6 +94,8 @@ def _tx_party_name(tx, side: str) -> str:
         return tx.to_user.full_name
     if tx.to_doctor is not None:
         return tx.to_doctor.full_name
+    if tx.to_pharmacy is not None:
+        return tx.to_pharmacy.name
     return "—"
 
 
@@ -128,8 +134,16 @@ async def ball_send_start(callback: CallbackQuery, session: AsyncSession, state:
         await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
         return
 
-    if user.role == Role.MANAGER:
-        await show_list(callback.message, session, user, lang, state, "ball_doc")
+    # Medvakil/regional: doktor yoki DORIXONA (mas'ul shaxs) tanlanadi.
+    if can_send_ball_to_pharmacy(user.role) and user.role != Role.OWNER:
+        await callback.message.answer(
+            t(lang, "ball_choose_target_kind"),
+            reply_markup=ball_target_kind_keyboard(
+                lang,
+                with_doctor=user.role == Role.MANAGER,
+                with_user=ball_transfer_target_role(user.role) is not None and user.role != Role.MANAGER,
+            ),
+        )
         await callback.answer()
         return
 
@@ -138,6 +152,59 @@ async def ball_send_start(callback: CallbackQuery, session: AsyncSession, state:
         return
     await show_list(callback.message, session, user, lang, state, "ball_user")
     await callback.answer()
+
+
+@router.callback_query(F.data.in_({"ball:to_doc", "ball:to_user", "ball:to_pha"}))
+async def ball_pick_kind(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    """Ball kimga: doktor / xodim / dorixona — mos ro'yxatni ochadi."""
+    user = await require_callback_user(callback, session)
+    if user is None:
+        return
+    if not can_use_ball(user.role):
+        await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
+        return
+    kind = (callback.data or "").split(":", 1)[1]
+    if kind == "to_pha":
+        if not can_send_ball_to_pharmacy(user.role):
+            await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
+            return
+        key = "ball_pha"
+    elif kind == "to_doc":
+        if user.role != Role.MANAGER:
+            await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
+            return
+        key = "ball_doc"
+    else:
+        if ball_transfer_target_role(user.role) is None:
+            await callback.answer(t(lang, "ball_no_perm"), show_alert=True)
+            return
+        key = "ball_user"
+    await show_list(callback.message, session, user, lang, state, key)
+    await callback.answer()
+
+
+def _valid_pharmacy_target(sender: User, pharmacy) -> bool:
+    """Dorixonaga ball: ko'lamda, APPROVED va mas'ul shaxs botga ulangan bo'lsin."""
+    if not can_send_ball_to_pharmacy(sender.role):
+        return False
+    if pharmacy is None or pharmacy.approval_status != ApprovalStatus.APPROVED:
+        return False
+    if not pharmacy_visible_to(sender, pharmacy):
+        return False
+    return pharmacy.bot_user is not None and pharmacy.bot_user.telegram_id is not None
+
+
+@router.callback_query(F.data.startswith("ball_to_pha:"))
+async def ball_pick_pharmacy(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
+    sender = await require_callback_user(callback, session)
+    if sender is None:
+        return
+    pharmacy = await get_pharmacy_with_user(session, int(callback.data.split(":", 1)[1]))
+    if not _valid_pharmacy_target(sender, pharmacy):
+        await callback.answer(t(lang, "ball_no_linked_pharmacies"), show_alert=True)
+        return
+    await state.update_data(to_user_id=None, to_doctor_id=None, to_pharmacy_id=pharmacy.id)
+    await _ask_amount(callback, session, state, sender, lang)
 
 
 async def _ask_amount(
@@ -208,6 +275,7 @@ async def ball_amount(message: Message, session: AsyncSession, state: FSMContext
     data = await state.get_data()
     to_user = None
     to_doctor = None
+    to_pharmacy = None
     recipient_chat_id = None
     recipient_lang = lang
     recipient_name = "-"
@@ -232,11 +300,23 @@ async def ball_amount(message: Message, session: AsyncSession, state: FSMContext
             return
         recipient_lang = normalize(to_doctor.bot_user.language)
         recipient_name = to_doctor.full_name
+    elif data.get("to_pharmacy_id"):
+        to_pharmacy = await get_pharmacy_with_user(session, data["to_pharmacy_id"])
+        if not _valid_pharmacy_target(sender, to_pharmacy):
+            await state.clear()
+            await message.answer(t(lang, "ball_no_linked_pharmacies"))
+            return
+        recipient_chat_id = to_pharmacy.bot_user.telegram_id
+        recipient_lang = normalize(to_pharmacy.bot_user.language)
+        recipient_name = to_pharmacy.name
     else:
         await state.clear()
         return
 
-    tx = await create_ball_transfer(session, sender=sender, amount=amount, to_user=to_user, to_doctor=to_doctor)
+    tx = await create_ball_transfer(
+        session, sender=sender, amount=amount,
+        to_user=to_user, to_doctor=to_doctor, to_pharmacy=to_pharmacy,
+    )
     # Avval commit — qabul qiluvchi tugmani bosganда tx bazada bo'lishi shart.
     await session.commit()
     await state.clear()
@@ -297,6 +377,8 @@ def _is_recipient(tx, user: User) -> bool:
         return tx.to_user_id == user.id
     if tx.to_doctor is not None:
         return tx.to_doctor.user_id == user.id
+    if tx.to_pharmacy is not None:
+        return tx.to_pharmacy.user_id == user.id
     return False
 
 

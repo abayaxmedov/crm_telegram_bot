@@ -11,16 +11,18 @@ from decimal import Decimal
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus, Pharmacy, Role, User
+from app.config import settings
 from app.db.repositories import (
     create_warehouse_request,
     drug_price_for,
     get_contract,
     get_drug,
     get_pharmacy,
+    get_warehouse_request,
     list_contracts_for_pharmacy,
     request_contract,
     search_pharmacies_visible,
@@ -36,6 +38,7 @@ from app.keyboards.reply import (
     wh_method_keyboard,
     wh_payment_keyboard,
 )
+from app.services.invoice import build_invoice_pdf, invoice_amounts
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import pharmacy_visible_to
@@ -89,12 +92,6 @@ def _cart_line(lang: str, index: int, entry: dict) -> str:
     price = Decimal(str(entry.get("price") or 0))
     qty = int(entry["qty"])
     return f"{index}. {entry['name']} — {qty} {t(lang, 'pcs')}. × {_num(price)} = {_num(price * qty)}"
-
-
-def _cart_total(cart: list[dict]) -> Decimal:
-    return sum(
-        (Decimal(str(c.get("price") or 0)) * int(c["qty"]) for c in cart), Decimal("0")
-    )
 
 
 def _cart_text(lang: str, cart: list[dict]) -> str:
@@ -327,6 +324,10 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
     )
     await session.commit()
 
+    # Summalar: narx bazada НДСсиз — invoysда ham, bu yerда ham НДС ustiga qo'shiladi.
+    full = await get_warehouse_request(session, request.id)
+    amounts = invoice_amounts(full)
+
     detail = "\n".join(_cart_line(lang, i, c) for i, c in enumerate(cart, 1))
     await callback.message.answer(
         t(
@@ -337,9 +338,27 @@ async def wh_cart_finish(callback: CallbackQuery, session: AsyncSession, state: 
             contract=_contract_label(contract, lang) if contract else "-",
             percent=percent,
             detail=detail,
-            total=_num(_cart_total(cart)),
+            net=_num(amounts["net"]),
+            vat_percent=settings.invoice_vat_percent,
+            vat=_num(amounts["vat"]),
+            total=_num(amounts["gross"]),
         )
     )
+
+    # Счёт на оплату (PDF) — FAQAT medvakilga; u aptekaga uzatadi.
+    pdf = build_invoice_pdf(full)
+    if pdf is None:
+        await callback.message.answer(t(lang, "wh_invoice_unavailable"))
+    else:
+        await callback.message.answer_document(
+            BufferedInputFile(pdf, filename=f"Schet_{request.id}.pdf"),
+            caption=t(
+                lang, "wh_invoice_caption",
+                id=request.id,
+                pharmacy=safe(_ph_label(pharmacy)) if pharmacy else "-",
+                amount=_num(amounts["prepay"]),
+            ),
+        )
     await callback.answer()
     await answer_media(
         callback.message, screen="menu", text=t(lang, "menu_text"), lang=lang,

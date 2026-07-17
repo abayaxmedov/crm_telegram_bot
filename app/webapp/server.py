@@ -133,7 +133,9 @@ async def api_summary(request: web.Request) -> web.Response:
             by_region[region]["ball"] += r["ball_total"]
             by_region[region]["sales"].add(r["sale_id"])
 
-            rep = r["rep_name"]
+            # "Kim ishladi" kesimi — doktor EGASI bo'yicha (sotuvni kim kiritganidan
+            # qat'i nazar). Doktorsiz sotuv bo'lsa — alohida guruh.
+            rep = r["owner_name"] or "— (докторсиз)"
             by_rep[rep]["qty"] += r["qty"]
             by_rep[rep]["revenue"] += r["revenue"]
             by_rep[rep]["ball"] += r["ball_total"]

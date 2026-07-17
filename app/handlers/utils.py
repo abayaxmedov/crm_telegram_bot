@@ -37,6 +37,24 @@ def clean_optional(value: str | None) -> str | None:
     return value
 
 
+MIN_PHONE_DIGITS = 7
+
+
+def parse_phone(value: str | None) -> str | None:
+    """Telefon raqami: kamida 7 ta RAQAM bo'lishi shart, aks holda None.
+
+    Shahar raqamlari 7 xonali bo'lgani uchun quyi chegara 7 (undan ko'pi ham bo'ladi:
+    mobil 9, xalqaro 12). Kiritilgan matn o'zgarishsiz saqlanadi (+998, qavs, chiziqcha
+    ko'rinishi buzilmasin) — tekshiruv faqat raqamlar soni bo'yicha."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    digits = sum(1 for ch in value if ch.isdigit())
+    return value if digits >= MIN_PHONE_DIGITS else None
+
+
 def safe(value: object | None) -> str:
     return escape(str(value)) if value is not None else "-"
 

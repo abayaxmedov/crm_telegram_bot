@@ -169,7 +169,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "btn_requests": {UZ_CYRL: "📦 Заявкалар", RU: "📦 Заявки"},
     "btn_finance": {UZ_CYRL: "💰 Молия", RU: "💰 Финансы"},
     "btn_salary": {UZ_CYRL: "🧾 Ойлик", RU: "🧾 Зарплата"},
-    "btn_language": {UZ_CYRL: "🌐 Тил", RU: "🌐 Язык"},
+    "btn_language": {UZ_CYRL: "🇺🇿🇷🇺 Тил", RU: "🇺🇿🇷🇺 Язык"},
 
     # ---- Ichki menyu tugmalari ----
     "btn_user_create": {UZ_CYRL: "➕ Фойдаланувчи қўшиш", RU: "➕ Создать пользователя"},
@@ -384,7 +384,14 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "Врачнинг тўлиқ исм-фамилиясини киритинг:",
         RU: "Введите полное ФИО врача:",
     },
-    "enter_phone": {UZ_CYRL: "Телефон рақами:", RU: "Номер телефона:"},
+    "enter_phone": {
+        UZ_CYRL: "Телефон рақами (камида 7 та рақам, масалан 1234567 ёки +998901234567):",
+        RU: "Номер телефона (минимум 7 цифр, например 1234567 или +998901234567):",
+    },
+    "phone_too_short": {
+        UZ_CYRL: "❌ Телефон рақами нотўғри: камида <b>7 та рақам</b> бўлиши керак. Қайта киритинг:",
+        RU: "❌ Неверный номер: должно быть минимум <b>7 цифр</b>. Введите ещё раз:",
+    },
     "enter_location": {UZ_CYRL: "Локация ёки манзил:", RU: "Локация или адрес:"},
     "enter_location_geo": {
         UZ_CYRL: "📍 Локацияни киритинг — матн ёзинг ёки қуйидаги тугма орқали жойлашувингизни юборинг:",
@@ -639,11 +646,35 @@ STRINGS: dict[str, dict[str, str]] = {
     "wh_done": {
         UZ_CYRL: (
             "✅ Заявка №{id} складга юборилди.\nАптека: {pharmacy}\nДоговор: {contract}\n"
-            "Тўлов шарти: {percent}% олдиндан\n\n{detail}\n\n💰 Жами: {total}"
+            "Тўлов шарти: {percent}% олдиндан\n\n{detail}\n\n"
+            "💰 НДСсиз: {net}\n➕ НДС ({vat_percent}%): {vat}\n<b>💰 Жами (НДС билан): {total}</b>"
         ),
         RU: (
             "✅ Заявка №{id} отправлена на склад.\nАптека: {pharmacy}\nДоговор: {contract}\n"
-            "Условие оплаты: {percent}% предоплата\n\n{detail}\n\n💰 Итого: {total}"
+            "Условие оплаты: {percent}% предоплата\n\n{detail}\n\n"
+            "💰 Без НДС: {net}\n➕ НДС ({vat_percent}%): {vat}\n<b>💰 Итого (с НДС): {total}</b>"
+        ),
+    },
+    "wh_invoice_caption": {
+        UZ_CYRL: (
+            "🧾 <b>Заявка №{id} — счёт на оплату</b>\n"
+            "Аптека: {pharmacy}\n💰 Тўлашга: {amount} сўм\n\n"
+            "Ушбу PDF'ни аптекага юборинг. Пул тушгач оператор отгрузка ёзади."
+        ),
+        RU: (
+            "🧾 <b>Заявка №{id} — счёт на оплату</b>\n"
+            "Аптека: {pharmacy}\n💰 К оплате: {amount} сум\n\n"
+            "Отправьте этот PDF аптеке. После поступления денег оператор оформит отгрузку."
+        ),
+    },
+    "wh_invoice_unavailable": {
+        UZ_CYRL: (
+            "⚠️ Счёт (PDF) ясалмади — компания реквизитлари тўлиқ киритилмаган. "
+            "Админга хабар беринг; заявканинг ўзи сақланди."
+        ),
+        RU: (
+            "⚠️ Счёт (PDF) не сформирован — реквизиты компании заполнены не полностью. "
+            "Сообщите админу; сама заявка сохранена."
         ),
     },
     "contract_no_date": {UZ_CYRL: "санасиз", RU: "без даты"},
@@ -817,6 +848,175 @@ STRINGS: dict[str, dict[str, str]] = {
     "wi_rejected_rep": {
         UZ_CYRL: "❌ Приход №{id} ({pharmacy}) TOP менежер томонидан рад этилди.",
         RU: "❌ Приход №{id} ({pharmacy}) отклонён TOP менеджером.",
+    },
+
+    # ---- Совға балл (medvakil/regional -> doktor, TOP tasdig'i) ----
+    "btn_gift": {UZ_CYRL: "🎁 Совға", RU: "🎁 Подарок"},
+    "gift_choose_doctor": {
+        UZ_CYRL: (
+            "🎁 <b>Совға балл</b>\n"
+            "Мавжуд баллингиз: <b>{available}</b>\n\n"
+            "Кимга совға қиласиз? Докторни танланг (фақат ботга уланган докторлар):"
+        ),
+        RU: (
+            "🎁 <b>Подарочные баллы</b>\n"
+            "Доступно баллов: <b>{available}</b>\n\n"
+            "Кому дарите? Выберите врача (только подключённые к боту):"
+        ),
+    },
+    "gift_no_doctors": {
+        UZ_CYRL: "Ботга уланган докторингиз йўқ. Доктор ботга кирганидан кейин совға юбориш мумкин.",
+        RU: "Нет врачей, подключённых к боту. Подарок можно отправить после входа врача в бот.",
+    },
+    "gift_enter_amount": {
+        UZ_CYRL: "🎁 <b>{doctor}</b> учун неча балл совға қиласиз?\nМавжуд: <b>{available}</b>",
+        RU: "🎁 Сколько баллов дарите врачу <b>{doctor}</b>?\nДоступно: <b>{available}</b>",
+    },
+    "gift_sent": {
+        UZ_CYRL: (
+            "✅ Совға сўрови юборилди.\n🎁 {amount} балл → {doctor}\n\n"
+            "TOP менежер тасдиқлагач балл доктор ҳисобига тушади ва сиздан ечилади."
+        ),
+        RU: (
+            "✅ Запрос на подарок отправлен.\n🎁 {amount} баллов → {doctor}\n\n"
+            "После подтверждения TOP менеджера баллы поступят врачу и спишутся с вас."
+        ),
+    },
+    "gift_no_top": {
+        UZ_CYRL: "⚠️ Тасдиқлайдиган TOP менежер топилмади. Админга мурожаат қилинг.",
+        RU: "⚠️ Не найден TOP менеджер для подтверждения. Обратитесь к админу.",
+    },
+    "btn_gift_approve": {UZ_CYRL: "🎁 Совға тасдиғи", RU: "🎁 Подтверждение подарков"},
+    "gift_approve_header": {UZ_CYRL: "🎁 Тасдиқ кутаётган совғалар:", RU: "🎁 Подарки, ожидающие подтверждения:"},
+    "gift_approve_empty": {UZ_CYRL: "Тасдиқ кутаётган совға йўқ.", RU: "Нет подарков, ожидающих подтверждения."},
+    "gift_card": {
+        UZ_CYRL: "🎁 Совға №{id}\n👤 Юборувчи: {sender} ({role})\n🧑‍⚕️ Доктор: {doctor}\n💠 Миқдор: {amount}\n📅 {date}",
+        RU: "🎁 Подарок №{id}\n👤 Отправитель: {sender} ({role})\n🧑‍⚕️ Врач: {doctor}\n💠 Количество: {amount}\n📅 {date}",
+    },
+    "new_gift_for_approve": {
+        UZ_CYRL: "🆕 <b>Янги совға балл — тасдиқлаш керак</b>\n\n{card}",
+        RU: "🆕 <b>Новый подарочный балл — требуется подтверждение</b>\n\n{card}",
+    },
+    "gift_not_found": {
+        UZ_CYRL: "Совға топилмади ёки аллақачон кўриб чиқилган.",
+        RU: "Подарок не найден или уже рассмотрен.",
+    },
+    "gift_approved": {UZ_CYRL: "✅ Совға №{id} тасдиқланди — балл докторга ўтди.", RU: "✅ Подарок №{id} подтверждён — баллы переданы врачу."},
+    "gift_rejected": {UZ_CYRL: "❌ Совға №{id} рад этилди.", RU: "❌ Подарок №{id} отклонён."},
+    "gift_insufficient_now": {
+        UZ_CYRL: "⚠️ Совға №{id} рад этилди: юборувчининг баланси етмайди.",
+        RU: "⚠️ Подарок №{id} отклонён: у отправителя недостаточно баллов.",
+    },
+    "gift_approved_sender": {
+        UZ_CYRL: "✅ Совғангиз тасдиқланди: 🎁 {amount} балл → {doctor}. Жорий балансингиз: {balance}",
+        RU: "✅ Ваш подарок подтверждён: 🎁 {amount} баллов → {doctor}. Ваш баланс: {balance}",
+    },
+    "gift_rejected_sender": {
+        UZ_CYRL: "❌ Совғангиз рад этилди: 🎁 {amount} балл → {doctor}. Балл ечилмади.",
+        RU: "❌ Ваш подарок отклонён: 🎁 {amount} баллов → {doctor}. Баллы не списаны.",
+    },
+    "gift_insufficient_sender": {
+        UZ_CYRL: "⚠️ Совғангиз ({amount} балл → {doctor}) рад этилди: балансингиз етмади.",
+        RU: "⚠️ Ваш подарок ({amount} баллов → {doctor}) отклонён: недостаточно баллов.",
+    },
+    "gift_doctor_notice": {
+        UZ_CYRL: "🎁 <b>Сизга совға!</b>\n\n{sender} сизга <b>{amount}</b> балл совға қилди.\n💠 Жорий балансингиз: <b>{balance}</b>",
+        RU: "🎁 <b>Вам подарок!</b>\n\n{sender} подарил(а) вам <b>{amount}</b> баллов.\n💠 Ваш баланс: <b>{balance}</b>",
+    },
+
+    # ---- Doktor/ЛПУ maqom tasdig'i (TOP menejer; yaratishga TO'SIQ EMAS) ----
+    "btn_entity_approve": {UZ_CYRL: "✅ Врач/ЛПУ тасдиғи", RU: "✅ Подтверждение врачей/ЛПУ"},
+    "entity_approve_header": {
+        UZ_CYRL: "✅ Тасдиқ кутаётганлар:\n🏥 ЛПУ: {lpus} та | 🧑‍⚕️ Доктор: {doctors} та",
+        RU: "✅ Ожидают подтверждения:\n🏥 ЛПУ: {lpus} | 🧑‍⚕️ Врачи: {doctors}",
+    },
+    "entity_approve_empty": {
+        UZ_CYRL: "Тасдиқ кутаётган ЛПУ ёки доктор йўқ.",
+        RU: "Нет ЛПУ или врачей, ожидающих подтверждения.",
+    },
+    "doctor_card_for_approve": {
+        UZ_CYRL: "🧑‍⚕️ Доктор #{id}\n📛 {name}\n📞 {phone}\n🏥 ЛПУ: {lpu}\n🌐 {region}\n👤 Яратди: {author}",
+        RU: "🧑‍⚕️ Врач #{id}\n📛 {name}\n📞 {phone}\n🏥 ЛПУ: {lpu}\n🌐 {region}\n👤 Создал: {author}",
+    },
+    "lpu_card_for_approve": {
+        UZ_CYRL: "🏥 ЛПУ #{id}\n📛 {name}\n📍 {address}\n🌐 {region}\n👤 Яратди: {author}",
+        RU: "🏥 ЛПУ #{id}\n📛 {name}\n📍 {address}\n🌐 {region}\n👤 Создал: {author}",
+    },
+    "new_doctor_for_approve": {
+        UZ_CYRL: "🆕 <b>Янги доктор яратилди — тасдиқлаш керак</b>\n\n{card}",
+        RU: "🆕 <b>Создан новый врач — требуется подтверждение</b>\n\n{card}",
+    },
+    "new_lpu_for_approve": {
+        UZ_CYRL: "🆕 <b>Янги ЛПУ яратилди — тасдиқлаш керак</b>\n\n{card}",
+        RU: "🆕 <b>Создано новое ЛПУ — требуется подтверждение</b>\n\n{card}",
+    },
+    "entity_approved_ok": {UZ_CYRL: "✅ Тасдиқланди.", RU: "✅ Подтверждено."},
+    "entity_rejected_ok": {UZ_CYRL: "❌ Рад этилди.", RU: "❌ Отклонено."},
+    "entity_already_decided": {
+        UZ_CYRL: "Аллақачон кўриб чиқилган.",
+        RU: "Уже рассмотрено.",
+    },
+    "doctor_saved_pending": {
+        UZ_CYRL: (
+            "✅ Доктор яратилди: #{id} — {name}\n"
+            "⏳ Мақоми: тасдиқ кутилмоқда (TOP менежерга сўров юборилди).\n"
+            "Ҳисобот ёзиш ҳозирдан мумкин; сотув ва балл тасдиқдан кейин очилади."
+        ),
+        RU: (
+            "✅ Врач создан: #{id} — {name}\n"
+            "⏳ Статус: ожидает подтверждения (запрос отправлен TOP менеджеру).\n"
+            "Отчёт можно писать уже сейчас; продажа и баллы откроются после подтверждения."
+        ),
+    },
+    "lpu_saved_pending": {
+        UZ_CYRL: (
+            "✅ ЛПУ яратилди: #{id} — {name}\n"
+            "⏳ Мақоми: тасдиқ кутилмоқда (TOP менежерга сўров юборилди).\n"
+            "Доктор бириктириш ва ҳисобот ёзиш ҳозирдан мумкин."
+        ),
+        RU: (
+            "✅ ЛПУ создано: #{id} — {name}\n"
+            "⏳ Статус: ожидает подтверждения (запрос отправлен TOP менеджеру).\n"
+            "Привязка врачей и отчёты доступны уже сейчас."
+        ),
+    },
+
+    # ---- Dorixona mas'ul shaxsiga ball ----
+    "ball_choose_target_kind": {
+        UZ_CYRL: "💠 Балл кимга юборилади?",
+        RU: "💠 Кому отправить баллы?",
+    },
+    "btn_ball_to_doctor": {UZ_CYRL: "🧑‍⚕️ Докторга", RU: "🧑‍⚕️ Врачу"},
+    "btn_ball_to_pharmacy": {UZ_CYRL: "💊 Дорихонага", RU: "💊 В аптеку"},
+    "btn_ball_to_user": {UZ_CYRL: "👤 Ходимга", RU: "👤 Сотруднику"},
+    "ball_choose_pharmacy": {
+        UZ_CYRL: "💊 Қайси дорихонага? (фақат ботга уланган масъул шахслар):",
+        RU: "💊 В какую аптеку? (только подключённые к боту ответственные лица):",
+    },
+    "ball_no_linked_pharmacies": {
+        UZ_CYRL: (
+            "Ботга уланган дорихона йўқ. Масъул шахс ботга кириб телефон рақамини "
+            "юборгандан кейин рўйхатда чиқади."
+        ),
+        RU: (
+            "Нет аптек, подключённых к боту. Ответственное лицо появится в списке после "
+            "входа в бот и отправки номера телефона."
+        ),
+    },
+    "btn_pharmacy_balance": {UZ_CYRL: "💰 Балансим", RU: "💰 Мой баланс"},
+    "pharmacy_balance_text": {
+        UZ_CYRL: "💊 <b>{name}</b>\n💠 Балл балансингиз: <b>{balance}</b>",
+        RU: "💊 <b>{name}</b>\n💠 Ваш баланс баллов: <b>{balance}</b>",
+    },
+    "pharmacy_not_linked": {
+        UZ_CYRL: (
+            "⚠️ Сизнинг рақамингиз бирорта дорихонага бириктирилмаган. "
+            "Медвакил дорихона маълумотидаги телефон рақамини текширсин."
+        ),
+        RU: (
+            "⚠️ Ваш номер не привязан ни к одной аптеке. "
+            "Попросите медпредставителя проверить номер телефона в данных аптеки."
+        ),
     },
     "pcs": {UZ_CYRL: "дона", RU: "шт"},
     "stock_short": {UZ_CYRL: "қолдиқ", RU: "остаток"},
@@ -1207,16 +1407,18 @@ STRINGS: dict[str, dict[str, str]] = {
         RU: "🏥 Сначала выберите ЛПУ — затем появятся его врачи:",
     },
     "report_no_lpus": {
-        UZ_CYRL: "Сизнинг регионингизда ЛПУ йўқ. Аввал 🏥 ЛПУ бўлимида ЛПУ яратинг.",
-        RU: "В вашем регионе нет ЛПУ. Сначала создайте ЛПУ в разделе 🏥 ЛПУ.",
+        UZ_CYRL: "🏥 Сизнинг регионингизда ҳали ЛПУ йўқ.\nҚуйидаги тугма орқали шу ернинг ўзида яратинг:",
+        RU: "🏥 В вашем регионе пока нет ЛПУ.\nСоздайте прямо здесь по кнопке ниже:",
     },
+    "btn_create_lpu_here": {UZ_CYRL: "➕ ЛПУ яратиш", RU: "➕ Создать ЛПУ"},
+    "btn_create_doctor_here": {UZ_CYRL: "➕ Доктор яратиш", RU: "➕ Создать врача"},
     "report_pick_doctor": {
         UZ_CYRL: "🧑‍⚕️ Қайси докторга бордингиз? ID тугмасини танланг:",
         RU: "🧑‍⚕️ К какому врачу? Нажмите ID:",
     },
     "report_no_doctors_in_lpu": {
-        UZ_CYRL: "Бу ЛПУда сизга кўринадиган доктор йўқ. Бошқа ЛПУни танланг ёки доктор қўшинг.",
-        RU: "В этом ЛПУ нет доступных вам врачей. Выберите другое ЛПУ или добавьте врача.",
+        UZ_CYRL: "🧑‍⚕️ Бу ЛПУда сизга кўринадиган доктор йўқ.\nҚуйидаги тугма орқали шу ернинг ўзида яратинг:",
+        RU: "🧑‍⚕️ В этом ЛПУ нет доступных вам врачей.\nСоздайте прямо здесь по кнопке ниже:",
     },
     "report_pick_pharmacy": {
         UZ_CYRL: "💊 Қайси дорихонага бордингиз? ID тугмасини танланг:",
@@ -1356,15 +1558,11 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "Манзилни киритинг (ёки <code>-</code>):",
         RU: "Введите адрес (или <code>-</code>):",
     },
-    "enter_lpu_phone": {
-        UZ_CYRL: "Телефон рақамини киритинг (ёки <code>-</code>):",
-        RU: "Введите номер телефона (или <code>-</code>):",
-    },
     "lpu_name_too_short": {UZ_CYRL: "ЛПУ номи жуда қисқа.", RU: "Название ЛПУ слишком короткое."},
     "lpu_saved": {UZ_CYRL: "✅ ЛПУ сақланди: #{id} — {name}", RU: "✅ ЛПУ сохранено: #{id} — {name}"},
     "lpu_card": {
-        UZ_CYRL: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}\n📞 {phone}",
-        RU: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}\n📞 {phone}",
+        UZ_CYRL: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}",
+        RU: "🏥 <b>{name}</b>\n🆔 #{id}\n🌐 {region}\n📍 {address}",
     },
     "no_region_assigned": {
         UZ_CYRL: (
@@ -1510,14 +1708,24 @@ def t(lang: str | None, key: str, **kwargs: object) -> str:
     return text
 
 
+# Tugma matni o'zgarganda: foydalanuvchi chatidagi reply-klaviatura Telegram'da
+# SAQLANIB qoladi — yangi menyu chiqmaguncha u ESKI matnli tugmani bosadi.
+# Shuning uchun eski matnlar ham tanilishi kerak, aks holda tugma "o'lik" bo'ladi.
+LEGACY_BUTTON_TEXTS: dict[str, set[str]] = {
+    # 2026-07-17: "🌐 Тил" -> "🇺🇿🇷🇺 Тил"
+    "btn_language": {"🌐 Тил", "🌐 Язык"},
+}
+
+
 def variants(key: str) -> set[str]:
-    """Berilgan tugma kaliti uchun barcha tillardagi matn variantlari to'plami.
+    """Berilgan tugma kaliti uchun barcha tillardagi matn variantlari to'plami
+    (+ eski matnlar — `LEGACY_BUTTON_TEXTS`).
 
     Reply-tugmalarni foydalanuvchi tilidan qat'i nazar aniqlash uchun ishlatiladi
     (masalan: F.text.in_(variants("btn_menu"))).
     """
     entry = STRINGS.get(key, {})
-    return set(entry.values())
+    return set(entry.values()) | LEGACY_BUTTON_TEXTS.get(key, set())
 
 
 def all_button_texts() -> frozenset[str]:
@@ -1527,6 +1735,9 @@ def all_button_texts() -> frozenset[str]:
     for key, entry in STRINGS.items():
         if key.startswith("btn_"):
             texts.update(entry.values())
+    for key, olds in LEGACY_BUTTON_TEXTS.items():
+        if key.startswith("btn_"):
+            texts.update(olds)
     return frozenset(texts)
 
 

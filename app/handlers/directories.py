@@ -22,7 +22,7 @@ from app.db.repositories import (
     list_pharmacies_visible,
     list_regions,
 )
-from app.handlers.utils import clean_optional, require_callback_user, require_user, safe
+from app.handlers.utils import clean_optional, parse_phone, require_callback_user, require_user, safe
 from app.i18n import t, variants
 from app.keyboards.reply import (
     doctor_edit_menu_keyboard,
@@ -34,6 +34,7 @@ from app.keyboards.reply import (
 )
 from app.services.approvals import notify_operators_new_pharmacy
 from app.services.excel import build_xlsx
+from app.services.entity_approvals import notify_top_new_doctor
 from app.services.listing import show_list
 from app.services.media import answer_media
 from app.services.security import (
@@ -128,7 +129,12 @@ async def doctor_full_name(message: Message, state: FSMContext, lang: str) -> No
 
 @router.message(DoctorFlow.phone)
 async def doctor_phone(message: Message, state: FSMContext, lang: str) -> None:
-    await state.update_data(phone=clean_optional(message.text))
+    # Doktor telefoni MAJBURIY va kamida 7 raqam — u doktorni botga bog'lash kaliti.
+    phone = parse_phone(message.text)
+    if phone is None:
+        await message.answer(t(lang, "phone_too_short"))
+        return
+    await state.update_data(phone=phone)
     await state.set_state(DoctorFlow.location)
     await message.answer(t(lang, "enter_location"))
 
@@ -153,6 +159,20 @@ async def doctor_notes(message: Message, session: AsyncSession, state: FSMContex
     if user is None:
         return
     await state.update_data(notes=clean_optional(message.text))
+    data = await state.get_data()
+
+    # Kundalik oqimидан kelган: ЛПУ allaqачон tanlanган — qayta so'ramaymиz, darrov yaratamиz.
+    if data.get("_after") == "report" and data.get("lpu_id"):
+        lpu = await get_lpu(session, data["lpu_id"])
+        if lpu is None or (
+            user.role in REGION_LOCKED_ROLES and lpu.region_id != user.region_id
+        ):
+            await state.clear()
+            await message.answer(t(lang, "entity_not_found"))
+            return
+        await _save_doctor(message, session, state, lang, user, region_id=lpu.region_id, lpu_id=lpu.id)
+        return
+
     # Medvakil/regional menejer o'z regioniga biriktirilgan — region so'ralmaydi,
     # to'g'ridan-to'g'ri O'Z regionidagi ЛПУ ro'yxati chiqadi (boshqa region ЛПУлари emas).
     if user.role in REGION_LOCKED_ROLES:
@@ -210,6 +230,54 @@ async def doctor_pick_region(callback: CallbackQuery, session: AsyncSession, sta
     await _ask_doctor_lpu(callback.message, session, state, lang, user, region_id)
 
 
+async def _save_doctor(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+    lang: str,
+    user: User,
+    *,
+    region_id: int | None,
+    lpu_id: int,
+) -> None:
+    """Doktorni yaratadi va oqimni yakunlaydi.
+
+    Maqom PENDING (⏳) — bu TO'SIQ EMAS: doktor darrov ishlatiladi (hisobot yozish),
+    faqat SOTUV/BALL/СОВҒА uchun TOP menejer tasdig'i (✅) kerak.
+
+    Kundalikdan kelgan bo'lsa (`_after=report`) — menyuga emas, shu ЛПУ doktorlari
+    ro'yxatiga qaytadi, foydalanuvchi yangi doktorni tanlab hisobotni davom ettiradi."""
+    data = await state.get_data()
+    after = data.get("_after")
+    doctor = await add_doctor(
+        session,
+        full_name=data["full_name"],
+        phone_number=data.get("phone"),
+        location_text=data.get("location"),
+        class_category=data.get("category"),
+        manager=user,
+        notes=data.get("notes"),
+        region_id=region_id,
+        lpu_id=lpu_id,
+        approval_status=ApprovalStatus.PENDING,
+    )
+    await session.commit()
+    await state.clear()
+    saved_text = t(lang, "doctor_saved_pending", id=doctor.id, name=escape(doctor.full_name))
+    # TOP menejerga REAL-TIME tasdiq so'rovi (tasdiq — sotuv/ball uchun darvoza).
+    await notify_top_new_doctor(message.bot, session, doctor.id)
+
+    if after == "report":
+        # Kundalik oqimидан kelgan — menyuга emas, shu ЛПУ doktorlarига qaytamиz;
+        # foydalanuвчи yangi doktorни tanlab hisobotни davom ettiradи.
+        await message.answer(saved_text)
+        await state.update_data(lpu_id=lpu_id)
+        await show_list(message, session, user, lang, state, "rep_tgt_doctor", ctx={"lpu_id": lpu_id})
+        return
+
+    await answer_media(message, screen="done", text=saved_text, lang=lang, reply_markup=doctors_menu(lang))
+
+
 @router.callback_query(DoctorFlow.lpu, F.data.startswith("doc_lpu:"))
 async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
     user = await require_callback_user(callback, session)
@@ -224,25 +292,7 @@ async def doctor_finish(callback: CallbackQuery, session: AsyncSession, state: F
         await callback.answer(t(lang, "entity_not_found"), show_alert=True)
         return
     await callback.answer()
-
-    # Doktor TASDIQSIZ — to'g'ridan-to'g'ri APPROVED (kim yaratgan bo'lsa ham).
-    doctor = await add_doctor(
-        session,
-        full_name=data["full_name"],
-        phone_number=data.get("phone"),
-        location_text=data.get("location"),
-        class_category=data.get("category"),
-        manager=user,
-        notes=data.get("notes"),
-        region_id=region_id,
-        lpu_id=lpu_id,
-        approval_status=ApprovalStatus.APPROVED,
-    )
-    await session.commit()
-    await state.clear()
-
-    text = t(lang, "doctor_saved", id=doctor.id, name=escape(doctor.full_name))
-    await answer_media(callback.message, screen="done", text=text, lang=lang, reply_markup=doctors_menu(lang))
+    await _save_doctor(callback.message, session, state, lang, user, region_id=region_id, lpu_id=lpu_id)
 
 
 @router.message(F.text.in_(variants("btn_doctors_list")))
@@ -552,7 +602,11 @@ async def doctor_edit_value_save(message: Message, session: AsyncSession, state:
             return
         await edit_doctor(session, doctor=doctor, actor=user, full_name=raw)
     elif field == "phone":
-        await edit_doctor(session, doctor=doctor, actor=user, phone_number=clean_optional(raw))
+        phone = parse_phone(raw)
+        if phone is None:
+            await message.answer(t(lang, "phone_too_short"))
+            return
+        await edit_doctor(session, doctor=doctor, actor=user, phone_number=phone)
     else:  # category
         await edit_doctor(session, doctor=doctor, actor=user, class_category=clean_optional(raw))
     await session.commit()

@@ -8,7 +8,7 @@ from typing import Iterable
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.db.models import (
     ApprovalStatus,
@@ -465,12 +465,20 @@ async def list_doctors_with_bonus(session: AsyncSession, manager: User) -> list[
 
 
 async def list_doctors_visible(
-    session: AsyncSession, actor: User, limit: int = 200, *, lpu_id: int | None = None
+    session: AsyncSession,
+    actor: User,
+    limit: int = 200,
+    *,
+    lpu_id: int | None = None,
+    only_approved: bool = False,
 ) -> list[Doctor]:
-    """Rolga qarab ko'rinadigan (APPROVED) doktorlar.
+    """Rolga qarab ko'rinadigan doktorlar.
 
     owner/top/product => hammasi; regional menejer => o'z REGIONI (o'zi yaratmagan
-    bo'lsa ham); medvakil => FAQAT o'zi yaratgan. `lpu_id` berilsa — shu ЛПУ doktorlari."""
+    bo'lsa ham); medvakil => FAQAT o'zi yaratgan. `lpu_id` berilsa — shu ЛПУ doktorlari.
+
+    `only_approved=True` — faqat ✅ tasdiqlanganlar (SOTUV/BALL uchun). Standart holda
+    tasdiqsizlar ham qaytadi (ro'yxat/hisobot uchun — maqom to'siq emas, belgi)."""
     query = (
         select(Doctor)
         .options(
@@ -478,10 +486,11 @@ async def list_doctors_visible(
             selectinload(Doctor.manager),
             selectinload(Doctor.bot_user),
         )
-        .where(Doctor.approval_status == ApprovalStatus.APPROVED)
         .order_by(desc(Doctor.created_at))
         .limit(limit)
     )
+    if only_approved:
+        query = query.where(Doctor.approval_status == ApprovalStatus.APPROVED)
     if actor.role == Role.REGIONAL_MANAGER:
         query = query.where(Doctor.region_id == actor.region_id)
     elif actor.role == Role.MANAGER:
@@ -604,14 +613,12 @@ async def add_lpu(
     *,
     name: str,
     address: str | None,
-    phone_number: str | None,
     creator: User,
     region_id: int | None = None,
 ) -> "Lpu":
     lpu = Lpu(
         name=name,
         address=address,
-        phone_number=phone_number,
         region_id=region_id,
         created_by_id=creator.id,
     )
@@ -622,7 +629,9 @@ async def add_lpu(
 
 
 async def list_lpus_visible(session: AsyncSession, actor: User, limit: int = 200) -> list["Lpu"]:
-    """Rolga qarab ko'rinadigan ЛПУ: owner/top/product => hammasi; regional/medvakil => o'z regioni."""
+    """Rolga qarab ko'rinadigan ЛПУ: owner/top/product => hammasi; regional/medvakil => o'z regioni.
+
+    Maqom (⏳/✅) bo'yicha FILTRLANMAYDI — tasdiqsiz ЛПУ ham ishlatilaveradi."""
     query = select(Lpu).options(selectinload(Lpu.region)).order_by(desc(Lpu.created_at)).limit(limit)
     if actor.role in {Role.REGIONAL_MANAGER, Role.MANAGER}:
         query = query.where(Lpu.region_id == actor.region_id)
@@ -648,7 +657,9 @@ async def get_lpu(session: AsyncSession, lpu_id: int) -> "Lpu | None":
 
 async def get_lpu_full(session: AsyncSession, lpu_id: int) -> "Lpu | None":
     result = await session.execute(
-        select(Lpu).options(selectinload(Lpu.region)).where(Lpu.id == lpu_id)
+        select(Lpu)
+        .options(selectinload(Lpu.region), selectinload(Lpu.created_by))
+        .where(Lpu.id == lpu_id)
     )
     return result.scalar_one_or_none()
 
@@ -1107,14 +1118,48 @@ async def list_pending_pharmacies(session: AsyncSession, limit: int = 30) -> lis
     return list(result.scalars())
 
 
+async def list_pending_lpus(session: AsyncSession, limit: int = 30) -> list["Lpu"]:
+    """TOP menejer tasdig'ini kutayotgan ЛПУлар."""
+    return list(
+        (
+            await session.execute(
+                select(Lpu)
+                .options(selectinload(Lpu.region), selectinload(Lpu.created_by))
+                .where(Lpu.approval_status == ApprovalStatus.PENDING)
+                .order_by(Lpu.created_at)
+                .limit(limit)
+            )
+        ).scalars()
+    )
+
+
+async def set_lpu_status(
+    session: AsyncSession, *, lpu: "Lpu", status: ApprovalStatus, actor: User
+) -> bool:
+    """ЛПУ maqomini o'zgartiradi (faqat belgi — hech narsani to'smaydi).
+
+    False => allaqachon ko'rib chiqilgan (parallel tasdiqlashda ikkinchisi yutqazadi)."""
+    if lpu.approval_status != ApprovalStatus.PENDING:
+        return False
+    lpu.approval_status = status
+    await log_action(session, actor, "lpu_status_changed", "lpu", str(lpu.id), status.value)
+    return True
+
+
 async def set_doctor_status(
     session: AsyncSession, *, doctor: Doctor, status: ApprovalStatus, operator: User
-) -> None:
+) -> bool:
+    """Doktor maqomini o'zgartiradi (maqom — sotuv/ball uchun darvoza, yaratishga to'siq emas).
+
+    False => allaqachon ko'rib chiqilgan (parallel tasdiqlashda ikkinchisi yutqazadi)."""
+    if doctor.approval_status != ApprovalStatus.PENDING:
+        return False
     doctor.approval_status = status
     await log_action(session, operator, "doctor_status_changed", "doctor", str(doctor.id), status.value)
     if status == ApprovalStatus.APPROVED:
         # Botga kirgan DOCTOR foydalanuvchisi bo'lsa — telefon orqali bog'laymiz.
         await try_link_user_for_doctor(session, doctor)
+    return True
 
 
 async def set_pharmacy_status(
@@ -1301,6 +1346,62 @@ async def try_link_doctor_user(session: AsyncSession, user: User) -> Doctor | No
     return None
 
 
+async def try_link_pharmacy_user(session: AsyncSession, user: User) -> Pharmacy | None:
+    """PHARMACY-rolli foydalanuvchini telefon bo'yicha dorixona yozuviga bog'laydi.
+
+    Doktor bilan aynan bir xil naqsh: solishtiruv `phone_key` (oxirgi 9 raqam)."""
+    if user.role != Role.PHARMACY:
+        return None
+    key = phone_key(user.phone_number)
+    if key is None:
+        return None
+    result = await session.execute(
+        select(Pharmacy).where(Pharmacy.user_id.is_(None), Pharmacy.phone_number.is_not(None))
+    )
+    for pharmacy in result.scalars():
+        if phone_key(pharmacy.phone_number) == key:
+            pharmacy.user_id = user.id
+            await log_action(session, user, "pharmacy_linked", "pharmacy", str(pharmacy.id), f"user={user.id}")
+            return pharmacy
+    return None
+
+
+async def get_pharmacy_by_user(session: AsyncSession, user_id: int) -> Pharmacy | None:
+    return (
+        await session.execute(select(Pharmacy).where(Pharmacy.user_id == user_id))
+    ).scalar_one_or_none()
+
+
+async def get_pharmacy_with_user(session: AsyncSession, pharmacy_id: int | None) -> Pharmacy | None:
+    if not pharmacy_id:
+        return None
+    return (
+        await session.execute(
+            select(Pharmacy).options(selectinload(Pharmacy.bot_user)).where(Pharmacy.id == pharmacy_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def pharmacies_for_ball_transfer(session: AsyncSession, rep: User) -> list[Pharmacy]:
+    """Ball yubora oladigan dorixonalar: ko'rinish qoidasi bo'yicha, APPROVED, botga ulangan."""
+    scope = (
+        Pharmacy.region_id == rep.region_id
+        if rep.role == Role.REGIONAL_MANAGER
+        else Pharmacy.manager_id == rep.id
+    )
+    result = await session.execute(
+        select(Pharmacy)
+        .options(selectinload(Pharmacy.bot_user))
+        .where(
+            Pharmacy.approval_status == ApprovalStatus.APPROVED,
+            scope,
+            Pharmacy.user_id.is_not(None),
+        )
+        .order_by(Pharmacy.name)
+    )
+    return [p for p in result.scalars() if p.bot_user is not None and p.bot_user.telegram_id is not None]
+
+
 async def try_link_user_for_doctor(session: AsyncSession, doctor: Doctor) -> User | None:
     """Doktor yozuvi uchun mos DOCTOR-rolli foydalanuvchini topib bog'laydi."""
     if doctor.user_id is not None:
@@ -1323,11 +1424,15 @@ async def try_link_user_for_doctor(session: AsyncSession, doctor: Doctor) -> Use
 
 
 async def pending_outgoing_ball(session: AsyncSession, user: User) -> int:
-    """Foydalanuvchining tasdiq kutayotgan chiquvchi TRANSFER ballari yig'indisi."""
+    """Tasdiq kutayotgan chiquvchi ballar (TRANSFER + GIFT) yig'indisi.
+
+    Ikkalasi ham qabul/tasdiq paytida balansdan ayiriladi — shuning uchun ikkalasi
+    ham `available_ball` da band hisoblanadi (aks holda bir ballni ikki marta
+    yuborib bo'lardi)."""
     result = await session.execute(
         select(func.coalesce(func.sum(BallTransaction.amount), 0)).where(
             BallTransaction.from_user_id == user.id,
-            BallTransaction.kind == BallTxKind.TRANSFER,
+            BallTransaction.kind.in_((BallTxKind.TRANSFER, BallTxKind.GIFT)),
             BallTransaction.status == BallTxStatus.PENDING,
         )
     )
@@ -1346,6 +1451,7 @@ async def create_ball_transfer(
     amount: int,
     to_user: User | None = None,
     to_doctor: Doctor | None = None,
+    to_pharmacy: Pharmacy | None = None,
 ) -> BallTransaction:
     """PENDING ball o'tkazmasi. Owner uchun MINT (emissiya — balansdan ayirilmaydi)."""
     kind = BallTxKind.MINT if sender.role == Role.OWNER else BallTxKind.TRANSFER
@@ -1356,11 +1462,50 @@ async def create_ball_transfer(
         from_user_id=sender.id,
         to_user_id=to_user.id if to_user else None,
         to_doctor_id=to_doctor.id if to_doctor else None,
+        to_pharmacy_id=to_pharmacy.id if to_pharmacy else None,
     )
     session.add(tx)
     await session.flush()
     await log_action(session, sender, "ball_transfer_created", "ball_tx", str(tx.id), f"{kind.value} {amount}")
     return tx
+
+
+async def create_ball_gift(
+    session: AsyncSession, *, sender: User, doctor: Doctor, amount: int
+) -> BallTransaction:
+    """Совға: PENDING GIFT — TOP menejer tasdiqlagach yuboruvchidan ayirilib doktorga o'tadi."""
+    tx = BallTransaction(
+        kind=BallTxKind.GIFT,
+        status=BallTxStatus.PENDING,
+        amount=amount,
+        from_user_id=sender.id,
+        to_doctor_id=doctor.id,
+    )
+    session.add(tx)
+    await session.flush()
+    await log_action(session, sender, "ball_gift_created", "ball_tx", str(tx.id), f"gift {amount}")
+    return tx
+
+
+async def list_pending_gifts(session: AsyncSession, limit: int = 20) -> list[BallTransaction]:
+    """TOP menejer tasdig'ini kutayotgan sovg'alar."""
+    return list(
+        (
+            await session.execute(
+                select(BallTransaction)
+                .where(
+                    BallTransaction.kind == BallTxKind.GIFT,
+                    BallTransaction.status == BallTxStatus.PENDING,
+                )
+                .options(
+                    selectinload(BallTransaction.from_user),
+                    selectinload(BallTransaction.to_doctor).selectinload(Doctor.bot_user),
+                )
+                .order_by(BallTransaction.created_at)
+                .limit(limit)
+            )
+        ).scalars()
+    )
 
 
 async def get_ball_transaction(session: AsyncSession, tx_id: int) -> BallTransaction | None:
@@ -1370,6 +1515,7 @@ async def get_ball_transaction(session: AsyncSession, tx_id: int) -> BallTransac
             selectinload(BallTransaction.from_user),
             selectinload(BallTransaction.to_user),
             selectinload(BallTransaction.to_doctor),
+            selectinload(BallTransaction.to_pharmacy).selectinload(Pharmacy.bot_user),
         )
         .where(BallTransaction.id == tx_id)
     )
@@ -1398,7 +1544,7 @@ async def accept_ball_transfer(session: AsyncSession, tx: BallTransaction, actor
     if not await _claim_ball_transfer(session, tx.id, BallTxStatus.ACCEPTED):
         return "conflict"
 
-    if tx.kind == BallTxKind.TRANSFER:
+    if tx.kind in (BallTxKind.TRANSFER, BallTxKind.GIFT):
         # Shartli atomik ayirish: balans yetgandagina o'tadi.
         deducted = await session.execute(
             sa_update(User)
@@ -1424,6 +1570,12 @@ async def accept_ball_transfer(session: AsyncSession, tx: BallTransaction, actor
             .where(Doctor.id == tx.to_doctor_id)
             .values(ball_balance=Doctor.ball_balance + tx.amount)
         )
+    elif tx.to_pharmacy_id is not None:
+        await session.execute(
+            sa_update(Pharmacy)
+            .where(Pharmacy.id == tx.to_pharmacy_id)
+            .values(ball_balance=Pharmacy.ball_balance + tx.amount)
+        )
     else:
         await session.execute(
             sa_update(BallTransaction).where(BallTransaction.id == tx.id).values(status=BallTxStatus.REJECTED)
@@ -1447,13 +1599,19 @@ async def finish_ball_transfer(
 
 
 async def get_ball_balance(
-    session: AsyncSession, *, user_id: int | None = None, doctor_id: int | None = None
+    session: AsyncSession,
+    *,
+    user_id: int | None = None,
+    doctor_id: int | None = None,
+    pharmacy_id: int | None = None,
 ) -> int:
     """Joriy ball balansi (atomik UPDATE'lardan keyin ORM obyekt eskirgani uchun)."""
     if user_id is not None:
         value = await session.scalar(select(User.ball_balance).where(User.id == user_id))
     elif doctor_id is not None:
         value = await session.scalar(select(Doctor.ball_balance).where(Doctor.id == doctor_id))
+    elif pharmacy_id is not None:
+        value = await session.scalar(select(Pharmacy.ball_balance).where(Pharmacy.id == pharmacy_id))
     else:
         value = 0
     return int(value or 0)
@@ -1608,14 +1766,22 @@ async def sales_item_rows(
 ) -> list[dict]:
     """Sotuv pozitsiyalari (tekis qatorlar) — analitika/Excel uchun.
 
-    Har qator: sana, rep, region, dorixona, doktor, dori, soni, narx, ball, tushum."""
+    Har qator: sana, rep, region, dorixona, doktor, dori, soni, narx, ball, tushum.
+
+    `rep_id` — XODIM filtri: sotuvni kim kiritganига emas, DOKTORNI KIM YARATGANIга
+    qarab filtrlaydi (`Doctor.manager_id`). Sabab: "qaysi xodim qancha ishlagani" —
+    uning o'z doktorlari bo'yicha o'lchanadi; regional menejer medvakilning doktorига
+    sotuv kiritса ham, natija o'sha MEDVAKИЛ hisobiга tushishi kerak.
+    Doktorsиз sotuvlar bu filtrда chiqmaydи (egasи yo'q)."""
+    doctor_owner = aliased(User)  # doktorni YARATGAN xodim (Sale.rep — sotuvni kiritgan)
     query = (
-        select(SaleItem, Sale, User, Region, Pharmacy, Doctor)
+        select(SaleItem, Sale, User, Region, Pharmacy, Doctor, doctor_owner)
         .join(Sale, Sale.id == SaleItem.sale_id)
         .join(User, User.id == Sale.rep_id)
         .outerjoin(Region, Region.id == User.region_id)
         .outerjoin(Pharmacy, Pharmacy.id == Sale.pharmacy_id)
         .outerjoin(Doctor, Doctor.id == Sale.doctor_id)
+        .outerjoin(doctor_owner, doctor_owner.id == Doctor.manager_id)
         .order_by(desc(SaleItem.created_at))
     )
     if start is not None:
@@ -1625,10 +1791,11 @@ async def sales_item_rows(
     if region_id is not None:
         query = query.where(User.region_id == region_id)
     if rep_id is not None:
-        query = query.where(Sale.rep_id == rep_id)
+        # Xodim = doktor EGASI (uni kim yaratgan), sotuvni kim kiritgani emas.
+        query = query.where(Doctor.manager_id == rep_id)
 
     rows: list[dict] = []
-    for item, sale, rep, region, pharmacy, doctor in (await session.execute(query)).all():
+    for item, sale, rep, region, pharmacy, doctor, owner in (await session.execute(query)).all():
         price = Decimal(str(item.price or 0))
         rows.append(
             {
@@ -1636,6 +1803,9 @@ async def sales_item_rows(
                 "sale_id": sale.id,
                 "rep_id": rep.id,
                 "rep_name": rep.full_name,
+                # Doktor egasi — "kim ishladi" kesimi shu bo'yicha (sotuvchи emas).
+                "owner_id": owner.id if owner else None,
+                "owner_name": owner.full_name if owner else None,
                 "region_id": region.id if region else None,
                 "region_name": region.name if region else None,
                 "pharmacy": pharmacy.name if pharmacy else None,

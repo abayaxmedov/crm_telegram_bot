@@ -54,6 +54,24 @@ class Settings:
     # Bo'sh bo'lsa MemoryStorage ishlatiladi (restart'da holat yo'qoladi).
     redis_url: str | None = None
 
+    # ---- Hisob-faktura (счёт на оплату) rekvizitlari ----
+    # Kompaniyaning YAGONA bank hisobi — invoys shapkasiga chiqadi.
+    # Bank NOMI ataylab yo'q (foydalanuvchi qarori) — faqat Р/С va МФО.
+    invoice_company: str = ""      # Получатель / Поставщик (to'liq yuridik nom)
+    invoice_inn: str = ""          # ИНН (СТИР)
+    invoice_account: str = ""      # Р/С (H/r — hisob raqami)
+    invoice_mfo: str = ""          # МФО
+    invoice_address: str = ""      # Адрес (ixtiyoriy — bo'sh bo'lsa qator chiqmaydi)
+    invoice_phone: str = ""        # Телефон (ixtiyoriy)
+    invoice_oked: str = ""         # ОКЭД (ixtiyoriy)
+    invoice_vat_percent: int = 12  # НДС stavkasi (narx НДСsiz kiritiladi, ustiga qo'shiladi)
+
+    def invoice_ready(self) -> bool:
+        """Majburiy rekvizitlar to'liq bo'lmasa PDF yasalmaydi (yarim hujjat yuborilmaydi).
+
+        Manzil/telefon/ОКЭД — ixtiyoriy: bo'lmasa o'sha qator tushib qoladi."""
+        return all([self.invoice_company, self.invoice_inn, self.invoice_account, self.invoice_mfo])
+
     def validate(self) -> None:
         if not self.bot_token:
             raise RuntimeError("BOT_TOKEN .env faylida yoki environment ichida berilishi kerak.")
@@ -79,5 +97,13 @@ settings = Settings(
     webapp_base_url=os.getenv("WEBAPP_BASE_URL", "").strip() or f"http://localhost:{os.getenv('WEBAPP_PORT', '8080').strip() or '8080'}",
     webapp_telegram_url=os.getenv("WEBAPP_TELEGRAM_URL", "").strip() or None,
     redis_url=os.getenv("REDIS_URL", "").strip() or None,
+    invoice_company=os.getenv("INVOICE_COMPANY", "").strip(),
+    invoice_inn=os.getenv("INVOICE_INN", "").strip(),
+    invoice_account=os.getenv("INVOICE_ACCOUNT", "").strip(),
+    invoice_mfo=os.getenv("INVOICE_MFO", "").strip(),
+    invoice_address=os.getenv("INVOICE_ADDRESS", "").strip(),
+    invoice_phone=os.getenv("INVOICE_PHONE", "").strip(),
+    invoice_oked=os.getenv("INVOICE_OKED", "").strip(),
+    invoice_vat_percent=int(os.getenv("INVOICE_VAT_PERCENT", "12").strip() or "12"),
 )
 

@@ -32,6 +32,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     drugs = t(lang, "btn_drugs")
     webapp = t(lang, "btn_webapp")
     wholesalers = t(lang, "btn_wholesalers")
+    gift = t(lang, "btn_gift")
 
     if role == Role.OWNER:
         # Owner: dori katalogини (🧪) boshqaradi; material yuklash PRODUCT menejerда, owner faqat ko'radi.
@@ -40,6 +41,7 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [doctors, pharmacies],
             [drugs, ball],
             [wholesalers, t(lang, "btn_wi_approve")],
+            [t(lang, "btn_gift_approve"), t(lang, "btn_entity_approve")],
             [t(lang, "btn_pharmacy_approve")],
             [t(lang, "btn_wh_approve")],
             [daily, requests],
@@ -52,7 +54,8 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
         rows = [
             [reports, daily],
             [doctors, pharmacies],
-            [t(lang, "btn_wi_approve")],
+            [t(lang, "btn_wi_approve"), t(lang, "btn_gift_approve")],
+            [t(lang, "btn_entity_approve")],
             [finance, ball],
             [materials, webapp],
             [language],
@@ -72,8 +75,9 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [doctors, pharmacies],
             [t(lang, "btn_lpu")],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
-            [ball, reports],
-            [materials, language],
+            [ball, gift],
+            [reports, materials],
+            [language],
         ]
     elif role == Role.MANAGER:
         # Медвакил: kundalik/tashrif birlashgan; ЛПУ bo'limi qo'shildi.
@@ -82,9 +86,10 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
             [t(lang, "btn_lpu")],
             [t(lang, "btn_sales"), t(lang, "btn_warehouse")],
             [t(lang, "btn_wholesale_income")],
-            [ball, daily],
-            [salary, materials],
-            [reports, language],
+            [ball, gift],
+            [daily, salary],
+            [materials, reports],
+            [language],
         ]
     elif role == Role.OPERATOR:
         # Оператор: склад + dorixona tasdig'i + dorixonalar bo'limi (doktor tasdig'i TOP'ga o'tdi).
@@ -96,8 +101,11 @@ def main_menu(role: Role, lang: str) -> ReplyKeyboardMarkup:
     elif role == Role.DOCTOR:
         # Доктор: salomlashuvsiz — faqat balans + til.
         rows = [[t(lang, "btn_doctor_balance")], [language]]
+    elif role == Role.PHARMACY:
+        # Дорихона mas'ul shaxsi: doktor kabi — balans + til.
+        rows = [[t(lang, "btn_pharmacy_balance")], [language]]
     else:
-        # ASSISTANT (deprecated), PHARMACY, noma'lum — faqat til.
+        # ASSISTANT (deprecated), noma'lum — faqat til.
         rows = [[language]]
     return reply_keyboard(rows, placeholder=t(lang, "ph_crm_section"))
 
@@ -241,6 +249,18 @@ def lpu_menu(lang: str, can_add: bool = True) -> ReplyKeyboardMarkup:
     return reply_keyboard(rows, placeholder=t(lang, "ph_select_section"))
 
 
+def gift_approve_keyboard(lang: str, tx_id: int) -> InlineKeyboardMarkup:
+    """TOP menejer uchun: sovg'ani tasdiqlash / rad etish."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "btn_entity_ok"), callback_data=f"gift_ok:{tx_id}"),
+                InlineKeyboardButton(text=t(lang, "btn_entity_reject"), callback_data=f"gift_rej:{tx_id}"),
+            ]
+        ]
+    )
+
+
 def wholesalers_menu(lang: str) -> ReplyKeyboardMarkup:
     """Оптомлар bo'limi — faqat owner (yaratish + ro'yxat)."""
     return reply_keyboard(
@@ -277,6 +297,17 @@ def ball_inline_keyboard(lang: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=t(lang, "btn_ball_report"), callback_data="ball:report")],
         ]
     )
+
+
+def ball_target_kind_keyboard(lang: str, *, with_user: bool, with_doctor: bool) -> InlineKeyboardMarkup:
+    """Ball kimga: doktor / dorixona / xodim (rolga qarab)."""
+    rows = []
+    if with_doctor:
+        rows.append([InlineKeyboardButton(text=t(lang, "btn_ball_to_doctor"), callback_data="ball:to_doc")])
+    if with_user:
+        rows.append([InlineKeyboardButton(text=t(lang, "btn_ball_to_user"), callback_data="ball:to_user")])
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_ball_to_pharmacy"), callback_data="ball:to_pha")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def ball_accept_keyboard(lang: str, tx_id: int) -> InlineKeyboardMarkup:

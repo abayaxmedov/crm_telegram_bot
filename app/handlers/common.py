@@ -14,9 +14,11 @@ from app.db.models import Role, User
 from app.db.repositories import (
     bind_invited_user,
     get_doctor_by_user,
+    get_pharmacy_by_user,
     get_user_by_invite_token,
     get_user_by_telegram_id,
     try_link_doctor_user,
+    try_link_pharmacy_user,
 )
 from app.i18n import LANGUAGES, normalize, role_label, t, variants
 from app.keyboards.reply import language_inline_keyboard, main_menu, phone_number_keyboard
@@ -37,6 +39,27 @@ async def show_doctor_balance(message: Message, session: AsyncSession, user: Use
         t(lang, "doctor_balance_text", balance=balance),
         reply_markup=main_menu(Role.DOCTOR, lang),
     )
+
+
+async def show_pharmacy_balance(message: Message, session: AsyncSession, user: User, lang: str) -> None:
+    """Dorixona mas'ul shaxsiga balans + menyu (doktor bilan bir xil naqsh)."""
+    pharmacy = await get_pharmacy_by_user(session, user.id)
+    if pharmacy is None:
+        # Telefon hech qaysi dorixonaga mos kelmadi — aniq xabar (jim qolmaymiz).
+        await message.answer(t(lang, "pharmacy_not_linked"), reply_markup=main_menu(Role.PHARMACY, lang))
+        return
+    await message.answer(
+        t(lang, "pharmacy_balance_text", name=escape(pharmacy.name), balance=int(pharmacy.ball_balance or 0)),
+        reply_markup=main_menu(Role.PHARMACY, lang),
+    )
+
+
+@router.message(F.text.in_(variants("btn_pharmacy_balance")))
+async def pharmacy_balance(message: Message, session: AsyncSession, lang: str) -> None:
+    user = await get_user_by_telegram_id(session, message.from_user.id) if message.from_user else None
+    if user is None or not user.is_active or user.role != Role.PHARMACY:
+        return
+    await show_pharmacy_balance(message, session, user, lang)
 
 
 @router.message(F.text.in_(variants("btn_doctor_balance")))
@@ -102,6 +125,9 @@ async def cmd_start(
         # Doktor: salomlashuv/"CRM'ga kirdingiz" kerak emas — to'g'ridan balans.
         if current_user.role == Role.DOCTOR:
             await show_doctor_balance(message, session, current_user, lang)
+            return
+        if current_user.role == Role.PHARMACY:
+            await show_pharmacy_balance(message, session, current_user, lang)
             return
 
         await answer_media(
@@ -313,8 +339,15 @@ async def save_user_phone(
     # DOCTOR bo'lsa — telefon orqali doktor yozuviga bog'laymiz (ball olishi uchun).
     if user.role == Role.DOCTOR:
         await try_link_doctor_user(session, user)
+    # Dorixona mas'ul shaxsi — xuddi shunday, telefon orqali dorixonaga bog'lanadi.
+    elif user.role == Role.PHARMACY:
+        await try_link_pharmacy_user(session, user)
     await session.commit()
     await state.clear()
+
+    if user.role == Role.PHARMACY:
+        await show_pharmacy_balance(message, session, user, lang)
+        return
 
     # Doktor: salomlashuv/rol/CRM matni kerak emas — to'g'ridan balans menyusi.
     if user.role == Role.DOCTOR:
