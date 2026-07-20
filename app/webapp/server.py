@@ -265,10 +265,24 @@ async def api_doctors(request: web.Request) -> web.Response:
         region_id = _int_or_none(request.query.get("region_id"))
         if region_id is not None:
             rows = [r for r in rows if r.get("region_id") == region_id or user.role.value == "owner"]
+        # ЛПУ ro'yxati (filtr ochilувчиси uchun) — filtrdan OLDIN, region ko'lamидаги hammasи.
+        lpus = sorted(
+            {(r["lpu_id"], r["lpu"]) for r in rows if r.get("lpu_id")}, key=lambda x: (x[1] or "")
+        )
+        lpu_id = _int_or_none(request.query.get("lpu_id"))
+        if lpu_id is not None:
+            rows = [r for r in rows if r.get("lpu_id") == lpu_id]
+        category = (request.query.get("category") or "").strip().upper()
+        if category in {"A", "B", "C"}:
+            rows = [r for r in rows if r["category"] == category]
         counts = {"A": 0, "B": 0, "C": 0}
         for r in rows:
             counts[r["category"]] = counts.get(r["category"], 0) + 1
-        return web.json_response({"counts": counts, "doctors": rows})
+        return web.json_response({
+            "counts": counts,
+            "doctors": rows,
+            "lpus": [{"id": i, "name": n} for i, n in lpus],
+        })
 
 
 def create_webapp() -> web.Application:

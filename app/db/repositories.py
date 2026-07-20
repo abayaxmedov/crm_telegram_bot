@@ -485,6 +485,7 @@ async def list_doctors_visible(
             selectinload(Doctor.region),
             selectinload(Doctor.manager),
             selectinload(Doctor.bot_user),
+            selectinload(Doctor.lpu),
         )
         .order_by(desc(Doctor.created_at))
         .limit(limit)
@@ -1882,6 +1883,8 @@ async def doctors_ball_overview(
         stats["name"] = d.full_name
         stats["region"] = d.region.name if d.region else None
         stats["region_id"] = d.region_id
+        stats["lpu_id"] = d.lpu_id
+        stats["lpu"] = d.lpu.name if d.lpu else None
         stats["balance"] = int(d.ball_balance or 0)
         result.append(stats)
     # A -> B -> C, keyin savdo tezligи bo'yicha.

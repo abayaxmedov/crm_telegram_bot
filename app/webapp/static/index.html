@@ -79,6 +79,13 @@
       <table id="tRep"><thead><tr><th>Ходим</th><th>Регион</th><th class="num">Сотув</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="panel"><h3>🏅 Докторлар категорияси (A/B/C)</h3>
+      <div class="filters" style="margin-bottom:8px;">
+        <div><label>Категория</label>
+          <select id="fCat"><option value="">Барчаси</option>
+            <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+          </select></div>
+        <div><label>ЛПУ</label><select id="fLpu"><option value="">Барчаси</option></select></div>
+      </div>
       <div id="catCounts" style="margin-bottom:8px;color:var(--muted)"></div>
       <table id="tDocCat"><thead><tr>
         <th>Кат.</th><th>Доктор</th><th>Регион</th>
@@ -204,8 +211,21 @@ async function loadBall(){
 }
 
 const CAT_COLOR = { A:"#1e8e4e", B:"#c8860a", C:"#b23b3b" };
+function docParams(){
+  const p = new URLSearchParams(params());
+  const cat = document.getElementById("fCat").value;
+  const lpu = document.getElementById("fLpu").value;
+  if (cat) p.set("category", cat);
+  if (lpu) p.set("lpu_id", lpu);
+  return p.toString();
+}
 async function loadDoctors(){
-  const d = await getJSON("/api/doctors?" + params());
+  const d = await getJSON("/api/doctors?" + docParams());
+  // ЛПУ рўйхатини (танланганини сақлаб) тўлдирамиз.
+  const sel = document.getElementById("fLpu"), cur = sel.value;
+  sel.innerHTML = '<option value="">Барчаси</option>' +
+    (d.lpus||[]).map(l => `<option value="${l.id}">${l.name}</option>`).join("");
+  sel.value = cur;
   document.getElementById("catCounts").textContent =
     `A: ${d.counts.A||0} | B: ${d.counts.B||0} | C: ${d.counts.C||0} — жами ${d.doctors.length} доктор`;
   fillTable("#tDocCat", d.doctors, r =>
@@ -226,6 +246,8 @@ async function refresh(){
 document.getElementById("period").addEventListener("change", ev =>
   document.getElementById("customDates").classList.toggle("show", ev.target.value === "custom"));
 document.getElementById("apply").addEventListener("click", refresh);
+document.getElementById("fCat").addEventListener("change", loadDoctors);
+document.getElementById("fLpu").addEventListener("change", loadDoctors);
 
 (async () => {
   try { await loadMeta(); await refresh(); }
