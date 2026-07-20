@@ -42,6 +42,25 @@
   .chartbox { position:relative; height:260px; }
   .custom-dates { display:none; gap:10px; }
   .custom-dates.show { display:flex; }
+  /* ===== Telefon (istalgan turdagi kичик ekran) ===== */
+  @media (max-width:640px){
+    body { padding:12px; }
+    h1 { font-size:18px; }
+    .cards { grid-template-columns:1fr 1fr; gap:8px; }   /* 2 ta karta bir qatorда */
+    .card .v { font-size:20px; }
+    .filters { gap:8px; padding:10px; }
+    .filters > div { flex:1 1 calc(50% - 4px); }          /* filtr maydonlarи 2 ustun */
+    .filters .custom-dates { flex-basis:100%; }
+    .filters select, .filters input { width:100%; min-width:0; }
+    .filters button { flex:1 1 100%; width:100%; padding:11px; }  /* tugma to'liq, qulay bosиладиган */
+    .panel { overflow-x:auto; }                            /* keng jadval — panel ичида gorizontal scroll */
+    .tscroll { overflow-x:auto; }
+    .chartbox { height:220px; }
+  }
+  @media (max-width:380px){
+    .cards { grid-template-columns:1fr; }                  /* juda kичик — kartalar 1 ustun */
+    .filters > div { flex-basis:100%; }                    /* filtrlar 1 ustun */
+  }
 </style>
 </head>
 <body>
