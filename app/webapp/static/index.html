@@ -32,6 +32,9 @@
   td.num, th.num { text-align:right; }
   .neg { color:#c0392b; font-weight:600; }
   .pos { color:#1e8e4e; }
+  /* Uzun jadval — o'z ichida scroll, sarlavha tepada yopishib turadi */
+  .tscroll { max-height:460px; overflow-y:auto; }
+  .tscroll thead th { position:sticky; top:0; background:var(--card); z-index:1; }
   #error { display:none; background:#fdecea; color:#b3261e; border:1px solid #f5c6c0;
            border-radius:10px; padding:12px 16px; margin-bottom:16px; }
   .chartbox { position:relative; height:260px; }
@@ -76,9 +79,6 @@
   </div>
 
   <div class="grid">
-    <div class="panel"><h3>Ходимлар кесимида (доктор эгаси бўйича)</h3>
-      <table id="tRep"><thead><tr><th>Ходим</th><th>Регион</th><th class="num">Сотув</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
-    </div>
     <div class="panel"><h3>🏅 Докторлар категорияси (A/B/C)</h3>
       <div class="filters" style="margin-bottom:8px;">
         <div><label>Категория</label>
@@ -88,15 +88,13 @@
         <div><label>ЛПУ</label><select id="fLpu"><option value="">Барчаси</option></select></div>
       </div>
       <div id="catCounts" style="margin-bottom:8px;color:var(--muted)"></div>
+      <div class="tscroll">
       <table id="tDocCat"><thead><tr>
         <th>Кат.</th><th>Доктор</th><th>Регион</th>
         <th class="num">Сўнгги 30к (балл/10к)</th><th class="num">Ўрт. қайтиш (кун)</th>
         <th class="num">Ойига</th><th class="num">Фаолият бошидан (балл/10к)</th><th class="num">Баланс</th>
       </tr></thead><tbody></tbody></table>
-    </div>
-
-    <div class="panel"><h3>Препаратлар кесимида</h3>
-      <table id="tDrug"><thead><tr><th>Препарат</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
+      </div>
     </div>
   </div>
 
@@ -194,11 +192,6 @@ async function loadSummary(){
     options: { maintainAspectRatio:false, scales:{ y:{beginAtZero:true} } }
   });
 
-  fillTable("#tRep", s.by_rep, r =>
-    `<td>${r.name}</td><td>${r.region||"—"}</td><td class="num">${fmt(r.sales)}</td>`+
-    `<td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.revenue)}</td><td class="num">${fmt(r.ball)}</td>`);
-  fillTable("#tDrug", s.by_drug, r =>
-    `<td>${r.name}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.revenue)}</td><td class="num">${fmt(r.ball)}</td>`);
 }
 
 async function loadBall(){
