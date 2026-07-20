@@ -229,7 +229,7 @@ async def seed(count: int) -> None:
             contracts.append(Contract(
                 pharmacy_id=ph.id,
                 number=f"D-{1000+i}",
-                signed_date=_days_ago(RNG.randint(1, 200)).date(),
+                signed_date=_days_ago(RNG.randint(1, 200)).strftime("%d.%m.%Y"),
                 status=ContractStatus.ACTIVE,
             ))
         s.add_all(contracts)
