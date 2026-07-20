@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from decimal import Decimal
 from html import escape
 
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus, Role, User
 from app.db.repositories import (
+    doctors_drug_breakdown,
     add_doctor,
     add_pharmacy,
     edit_doctor,
@@ -310,23 +313,42 @@ async def doctors_excel(message: Message, session: AsyncSession, lang: str) -> N
         await message.answer(t(lang, "section_closed"))
         return
     doctors = await list_doctors_visible(session, user, limit=5000)
-    rows = [
-        [
-            d.id,
-            d.full_name,
-            d.phone_number,
+    since30 = datetime.now(timezone.utc) - timedelta(days=30)
+    breakdown = await doctors_drug_breakdown(session, [d.id for d in doctors], since=since30)
+
+    rows = []
+    matrix_rows = []  # "Доктор × Препарат" varag'i (tahlil uchun)
+    for d in doctors:
+        drugs = breakdown.get(d.id, [])
+        # Asosiy varaqда qisqa: top 5 dori "Ном(жами)" ko'rinishida.
+        top_str = ", ".join(f"{r['name']} ({r['qty_total']})" for r in drugs[:5]) or "-"
+        rows.append([
+            d.id, d.full_name, d.phone_number,
             d.region.name if d.region else "-",
-            d.class_category,
-            d.location_text,
+            d.class_category, d.location_text,
             d.manager.full_name if d.manager else "-",
             int(d.ball_balance or 0),
             str(d.created_at)[:16] if d.created_at else "-",
-        ]
-        for d in doctors
-    ]
-    data = build_xlsx(
-        [("Докторлар", ["ID", "ФИО", "Телефон", "Регион", "Категория", "Манзил", "Масъул", "Балл баланс", "Яратилган"], rows)]
-    )
+            top_str,
+        ])
+        for r in drugs:  # har (doktor, dori) — alohida qator, top birinchi
+            matrix_rows.append([
+                d.full_name, r["name"], r["qty_total"], r["qty_recent"], r["ball_total"],
+            ])
+
+    data = build_xlsx([
+        (
+            "Докторлар",
+            ["ID", "ФИО", "Телефон", "Регион", "Категория", "Манзил", "Масъул",
+             "Балл баланс", "Яратилган", "Топ препаратлар (жами)"],
+            rows,
+        ),
+        (
+            "Доктор × Препарат",
+            ["Доктор", "Препарат", "Жами дона", "Сўнгги 30 кун", "Жами балл"],
+            matrix_rows,
+        ),
+    ])
     await message.answer_document(
         document=BufferedInputFile(data, filename="doctors.xlsx"),
         caption=t(lang, "excel_caption_doctors"),

@@ -1546,6 +1546,13 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
     },
     "category_no_data": {UZ_CYRL: "—", RU: "—"},
+    "doctor_drugs_header": {
+        UZ_CYRL: "💊 <b>Сотилган препаратлар</b> (жами | сўнгги 30 кун):",
+        RU: "💊 <b>Проданные препараты</b> (всего | посл. 30 дн):",
+    },
+    "doctor_drugs_row": {UZ_CYRL: "• {name}: {total} | {recent} дона", RU: "• {name}: {total} | {recent} шт"},
+    "doctor_drugs_empty": {UZ_CYRL: "💊 Ҳали сотув йўқ.", RU: "💊 Продаж пока нет."},
+    "doctor_drugs_more": {UZ_CYRL: "… ва яна {n} та", RU: "… и ещё {n}"},
     # ================= ЛПУ (Davolash-profilaktika muassasasi) =================
     "btn_lpu": {UZ_CYRL: "🏥 ЛПУ", RU: "🏥 ЛПУ"},
     "lpu_text": {

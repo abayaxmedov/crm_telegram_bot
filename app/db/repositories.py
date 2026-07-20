@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import case, desc, func, literal, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -1869,6 +1869,47 @@ async def doctor_ball_stats(session: AsyncSession, doctor_id: int) -> dict:
         "monthly_return": round(monthly_return, 1),
         "avg_return_days": _avg_return_days(list(grant_rows), list(ded_rows)),
     }
+
+
+
+async def doctors_drug_breakdown(
+    session: AsyncSession, doctor_ids: list[int], *, since: datetime | None = None
+) -> dict[int, list[dict]]:
+    """Doktorlar bo'yicha SOTILGAN dorilar (uning sotuvlari orqali).
+
+    Har doktor uchun: [{name, qty_total, qty_recent, ball_total}, ...] — jami dona
+    bo'yicha KAMAYISH tartibida (top dorilar birinchi). `since` — "oxirgi davr"
+    chegarasi (masalan oxirgi 30 kun); qty_recent shu davrdagi dona.
+
+    Manba: Sale.doctor_id -> SaleItem (dori nomi, soni, ball)."""
+    if not doctor_ids:
+        return {}
+    recent_qty = func.sum(
+        case((SaleItem.created_at >= since, SaleItem.quantity), else_=0)
+    ) if since is not None else func.sum(literal(0))
+    query = (
+        select(
+            Sale.doctor_id,
+            SaleItem.drug_name,
+            func.sum(SaleItem.quantity),
+            recent_qty,
+            func.sum(SaleItem.ball * SaleItem.quantity),  # ball DONA BOSHIGA — jami uchun ×quantity
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(Sale.doctor_id.in_(doctor_ids))
+        .group_by(Sale.doctor_id, SaleItem.drug_name)
+    )
+    result: dict[int, list[dict]] = {}
+    for doc_id, name, qty_total, qty_recent, ball_total in (await session.execute(query)).all():
+        result.setdefault(doc_id, []).append({
+            "name": name,
+            "qty_total": int(qty_total or 0),
+            "qty_recent": int(qty_recent or 0),
+            "ball_total": int(ball_total or 0),
+        })
+    for rows in result.values():
+        rows.sort(key=lambda r: r["qty_total"], reverse=True)  # top dorilar birinchi
+    return result
 
 
 async def doctors_ball_overview(

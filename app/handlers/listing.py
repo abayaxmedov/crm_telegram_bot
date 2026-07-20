@@ -10,6 +10,8 @@ handlerlar bilan ishlanadi; bu router faqat navigatsiya/qidiruv/karta bilan.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from html import escape
 
 from aiogram import F, Router
@@ -21,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ApprovalStatus, Role
 from app.db.repositories import (
     doctor_ball_stats,
+    doctors_drug_breakdown,
     get_doctor_full,
     get_lpu_full,
     get_pharmacy_full,
@@ -159,6 +162,21 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
         ),
         reply_markup=kb,
     )
+
+    # Sotilgan preparatlar (top dorilar birinchi) — "o'shandan ko'rib olamiz".
+    since30 = datetime.now(timezone.utc) - timedelta(days=30)
+    breakdown = (await doctors_drug_breakdown(session, [doctor.id], since=since30)).get(doctor.id, [])
+    if not breakdown:
+        await callback.message.answer(t(lang, "doctor_drugs_empty"))
+    else:
+        lines = [
+            t(lang, "doctor_drugs_row", name=escape(r["name"]), total=r["qty_total"], recent=r["qty_recent"])
+            for r in breakdown[:10]
+        ]
+        text_body = t(lang, "doctor_drugs_header") + "\n" + "\n".join(lines)
+        if len(breakdown) > 10:
+            text_body += "\n" + t(lang, "doctor_drugs_more", n=len(breakdown) - 10)
+        await callback.message.answer(text_body)
 
 
 @router.callback_query(F.data.startswith("ph_info:"))
