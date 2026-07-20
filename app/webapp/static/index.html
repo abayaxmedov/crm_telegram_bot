@@ -13,6 +13,8 @@
   .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
   .filters { display:flex; flex-wrap:wrap; gap:10px; background:var(--card); border:1px solid var(--line);
              border-radius:12px; padding:12px 14px; margin-bottom:16px; align-items:end; }
+  /* Tepadagi asosiy filtr — scroll qilganda ham yuqorida yopishib turadi */
+  .filters.topbar { position:sticky; top:0; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,.06); }
   .filters label { display:block; font-size:11px; color:var(--muted); margin-bottom:3px; }
   .filters select, .filters input { padding:7px 10px; border:1px solid var(--line); border-radius:8px;
              background:#fff; font-size:13px; min-width:130px; }
@@ -47,7 +49,7 @@
   <div class="sub" id="userline">Юкланмоқда...</div>
   <div id="error"></div>
 
-  <div class="filters">
+  <div class="filters topbar">
     <div><label>Давр</label>
       <select id="period">
         <option value="10d">10 кунлик</option>
