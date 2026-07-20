@@ -39,6 +39,22 @@
   .tscroll thead th { position:sticky; top:0; background:var(--card); z-index:1; }
   #error { display:none; background:#fdecea; color:#b3261e; border:1px solid #f5c6c0;
            border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+  /* ===== 2FA kirish ekrani (gate) ===== */
+  #gate { position:fixed; inset:0; background:var(--bg); z-index:1000;
+          display:none; align-items:center; justify-content:center; padding:20px; }
+  #gate .box { background:var(--card); border:1px solid var(--line); border-radius:14px;
+               padding:24px; max-width:380px; width:100%; text-align:center;
+               box-shadow:0 10px 40px rgba(0,0,0,.08); }
+  #gate h2 { font-size:18px; margin-bottom:8px; }
+  #gate p { color:var(--muted); font-size:13px; margin-bottom:16px; line-height:1.5; }
+  #gate input { width:100%; padding:12px; font-size:20px; text-align:center; letter-spacing:6px;
+                border:1px solid var(--line); border-radius:10px; margin-bottom:12px; }
+  #gate button { width:100%; padding:12px; background:var(--accent); color:#fff; border:0;
+                 border-radius:10px; font-size:15px; cursor:pointer; }
+  #gate button:disabled { opacity:.5; cursor:default; }
+  #gate .msg { font-size:13px; margin-top:12px; min-height:18px; }
+  #gate .msg.err { color:#b3261e; }
+  #gate .msg.ok { color:#1e8e4e; }
   .chartbox { position:relative; height:260px; }
   .custom-dates { display:none; gap:10px; }
   .custom-dates.show { display:flex; }
@@ -64,6 +80,22 @@
 </style>
 </head>
 <body>
+  <div id="gate">
+    <div class="box">
+      <h2>🔐 Хавфсиз кириш</h2>
+      <p>Панелга кириш учун тасдиқлаш керак. Ботга юборилган <b>6 хонали кодни</b> киритинг.</p>
+      <div id="gateStep1">
+        <button id="gateSend">📩 Ботга код юбориш</button>
+      </div>
+      <div id="gateStep2" style="display:none;">
+        <input id="gateCode" type="text" inputmode="numeric" maxlength="6" placeholder="______" autocomplete="one-time-code">
+        <button id="gateVerify">Тасдиқлаш</button>
+        <button id="gateResend" style="background:none;color:var(--accent);margin-top:8px;">Кодни қайта юбориш</button>
+      </div>
+      <div id="gateMsg" class="msg"></div>
+    </div>
+  </div>
+
   <h1>📊 CRM Аналитика панели</h1>
   <div class="sub" id="userline">Юкланмоқда...</div>
   <div id="error"></div>
@@ -135,6 +167,7 @@
 
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
+let sid = localStorage.getItem("crm_sid") || "";   // 2FA tasdig'idan keyingi sessiya
 const fmt = n => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100);
 const KIND = {mint:"Эмиссия", transfer:"Ўтказма", sale_deduct:"Сотувдан айириш"};
 const STATUS = {pending:"кутилмоқда", accepted:"қабул қилинган", rejected:"рад этилган", expired:"муддати тугаган"};
@@ -143,7 +176,7 @@ let chDay = null, chRegion = null;
 function showError(msg){ const el = document.getElementById("error"); el.textContent = msg; el.style.display = "block"; }
 
 function params(){
-  const p = new URLSearchParams({token, period: document.getElementById("period").value});
+  const p = new URLSearchParams({sid, period: document.getElementById("period").value});
   if (p.get("period") === "custom"){
     p.set("start", document.getElementById("start").value);
     p.set("end", document.getElementById("end").value);
@@ -159,13 +192,13 @@ function params(){
 
 async function getJSON(path){
   const res = await fetch(path);
-  if (res.status === 401) throw new Error("Ҳавола муддати тугаган — ботдан янги ҳавола олинг (🌐 Web панель).");
+  if (res.status === 401) { const e = new Error("unauthorized"); e.code = 401; throw e; }
   if (!res.ok) throw new Error("Сервер хатоси: " + res.status);
   return res.json();
 }
 
 async function loadMeta(){
-  const meta = await getJSON("/api/meta?token=" + encodeURIComponent(token));
+  const meta = await getJSON("/api/meta?" + params());
   document.getElementById("userline").textContent = meta.user.name + " (" + meta.user.role + ")";
   const regionSel = document.getElementById("region");
   meta.regions.forEach(r => regionSel.add(new Option(r.name, r.id)));
@@ -268,10 +301,78 @@ document.getElementById("apply").addEventListener("click", refresh);
 document.getElementById("fCat").addEventListener("change", loadDoctors);
 document.getElementById("fLpu").addEventListener("change", loadDoctors);
 
-(async () => {
+// ===== 2FA gate =====
+const gate = document.getElementById("gate");
+const gMsg = document.getElementById("gateMsg");
+function gateShow(show){ gate.style.display = show ? "flex" : "none"; }
+function gateMsg(text, cls){ gMsg.textContent = text || ""; gMsg.className = "msg" + (cls ? " " + cls : ""); }
+
+async function apiGate(path){
+  const res = await fetch(path);
+  try { return await res.json(); } catch(e){ return {ok:false, error:"server", status:res.status}; }
+}
+
+async function requestCode(){
+  gateMsg("Юборилмоқда...", "");
+  const d = await apiGate("/api/request-code?token=" + encodeURIComponent(token));
+  if (d.ok){
+    document.getElementById("gateStep1").style.display = "none";
+    document.getElementById("gateStep2").style.display = "block";
+    document.getElementById("gateCode").focus();
+    gateMsg("✅ Код Telegram'га юборилди. 5 дақиқа амал қилади.", "ok");
+  } else if (d.error === "too_soon"){
+    document.getElementById("gateStep2").style.display = "block";
+    gateMsg(`Кутинг: ${d.wait} сониядан кейин қайта юборинг.`, "err");
+  } else if (d.error === "no_telegram"){
+    gateMsg("Сизнинг аккаунтингиз ботга уланмаган.", "err");
+  } else if (d.status === 401){
+    gateMsg("Ҳавола нотўғри ёки муддати тугаган. Ботдан янги ҳавола олинг.", "err");
+  } else {
+    gateMsg("Код юборилмади. Кейинроқ уриниб кўринг.", "err");
+  }
+}
+
+async function verifyCode(){
+  const code = document.getElementById("gateCode").value.trim();
+  if (code.length < 6){ gateMsg("6 хонали кодни киритинг.", "err"); return; }
+  gateMsg("Текширилмоқда...", "");
+  const d = await apiGate("/api/verify-code?token=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(code));
+  if (d.ok && d.sid){
+    sid = d.sid; localStorage.setItem("crm_sid", sid);
+    gateShow(false);
+    init();
+  } else if (d.error === "wrong"){
+    gateMsg(`Код нотўғри. Қолган уриниш: ${d.left ?? "-"}.`, "err");
+  } else if (d.error === "too_many"){
+    gateMsg("Кўп марта нотўғри киритилди. Кодни қайта юборинг.", "err");
+    document.getElementById("gateStep1").style.display = "block";
+    document.getElementById("gateStep2").style.display = "none";
+  } else if (d.error === "expired"){
+    gateMsg("Код муддати тугади. Қайта юборинг.", "err");
+  } else {
+    gateMsg("Тасдиқлашда хатолик.", "err");
+  }
+}
+
+document.getElementById("gateSend").addEventListener("click", requestCode);
+document.getElementById("gateResend").addEventListener("click", requestCode);
+document.getElementById("gateVerify").addEventListener("click", verifyCode);
+document.getElementById("gateCode").addEventListener("keydown", e => { if (e.key === "Enter") verifyCode(); });
+
+async function init(){
+  if (!token){ showError("Ҳавола нотўғри — ботдан 🌐 Web панель орқали олинг."); return; }
+  if (!sid){ gateShow(true); return; }
   try { await loadMeta(); await refresh(); }
-  catch (e) { showError(e.message); }
-})();
+  catch (e){
+    if (e.code === 401){                       // sessiya tugаган — qayta tasdiqlash
+      sid = ""; localStorage.removeItem("crm_sid");
+      document.getElementById("gateStep1").style.display = "block";
+      document.getElementById("gateStep2").style.display = "none";
+      gateMsg("", ""); gateShow(true);
+    } else showError(e.message);
+  }
+}
+init();
 </script>
 </body>
 </html>

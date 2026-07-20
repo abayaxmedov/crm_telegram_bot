@@ -66,7 +66,7 @@ async def main() -> None:
     await setup_bot_profile(bot)
 
     # Analitika web-paneli (aiohttp) — polling bilan bitta processda.
-    runner = aioweb.AppRunner(create_webapp())
+    runner = aioweb.AppRunner(create_webapp(bot))
     await runner.setup()
     site = aioweb.TCPSite(runner, settings.webapp_host, settings.webapp_port)
     await site.start()

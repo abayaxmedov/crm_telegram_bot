@@ -5,6 +5,10 @@ from __future__ import annotations
 Barcha /api/* endpointlar `token` query-parametri bilan himoyalangan
 (app/webapp/auth.py). Ma'lumotlar davr/region/rep filtrlariga ko'ra qaytadi."""
 
+import hmac
+import logging
+import secrets
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -24,11 +28,12 @@ from app.db.repositories import (
     sales_item_rows,
 )
 from app.db.session import AsyncSessionLocal
-from app.webapp.auth import parse_token
+from app.webapp.auth import make_session, parse_session, parse_token
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 WEBAPP_ROLES = {Role.OWNER, Role.TOP_MANAGER, Role.PRODUCT_MANAGER}
+logger = logging.getLogger(__name__)
 
 
 def _num(value) -> float | int:
@@ -37,14 +42,25 @@ def _num(value) -> float | int:
     return value
 
 
-async def _auth_user(request: web.Request, session) -> User | None:
-    user_id = parse_token(request.query.get("token"))
+async def _user_by_id(session, user_id: int | None) -> User | None:
     if user_id is None:
         return None
     user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if user is None or not user.is_active or user.role not in WEBAPP_ROLES:
         return None
     return user
+
+
+async def _auth_user(request: web.Request, session) -> User | None:
+    """Ma'lumot endpointlari — FAQAT tasdiqlangan SESSIYA (sid) qabul qilinadi.
+
+    Havoladagi `token` o'zi yetarli emas: 2FA kodini kiritmasa `sid` bo'lmaydi."""
+    return await _user_by_id(session, parse_session(request.query.get("sid")))
+
+
+async def _link_user(request: web.Request, session) -> User | None:
+    """Havola (link) token bilan aniqlash — faqat kod so'rash/tasdiqlash uchun."""
+    return await _user_by_id(session, parse_token(request.query.get("token")))
 
 
 def _parse_period(request: web.Request) -> tuple[datetime | None, datetime]:
@@ -291,9 +307,77 @@ async def api_doctors(request: web.Request) -> web.Response:
         })
 
 
-def create_webapp() -> web.Application:
+# ==================== 2FA: bir martalik kod (Telegram orqali) ====================
+# Kodlar xotirada (bitta process): user_id -> {code, exp, attempts, last_sent}.
+# Restartda yo'qoladi — foydalanuvchi qaytadan kod so'raydi (sessiya esa imzoli, omon qoladi).
+_pending_codes: dict[int, dict] = {}
+CODE_TTL = 300          # kod 5 daqiqa amal qiladi
+CODE_RESEND_MIN = 30    # qayta yuborishlar orasida kamida 30 soniya
+CODE_MAX_ATTEMPTS = 5   # bitta kodga ko'pi bilan 5 urinish
+
+
+async def api_request_code(request: web.Request) -> web.Response:
+    """Havola egasining Telegram'iga 6 xonali kirish kodini yuboradi."""
+    async with AsyncSessionLocal() as session:
+        user = await _link_user(request, session)
+    if user is None:
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    if not user.telegram_id:
+        return web.json_response({"ok": False, "error": "no_telegram"})
+
+    now = int(time.time())
+    entry = _pending_codes.get(user.id)
+    if entry and now - entry["last_sent"] < CODE_RESEND_MIN:
+        return web.json_response({"ok": False, "error": "too_soon", "wait": CODE_RESEND_MIN - (now - entry["last_sent"])})
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    _pending_codes[user.id] = {"code": code, "exp": now + CODE_TTL, "attempts": 0, "last_sent": now}
+
+    bot = request.app.get("bot")
+    if bot is None:
+        return web.json_response({"ok": False, "error": "bot_unavailable"}, status=500)
+    try:
+        await bot.send_message(
+            user.telegram_id,
+            f"🔐 <b>Web панель кириш коди:</b> <code>{code}</code>\n"
+            f"5 дақиқа амал қилади. Уни ҳеч кимга берманг.",
+        )
+    except Exception as exc:  # bot bloklangan / chat topilmadi
+        logger.warning("2FA code send failed (user=%s): %s", user.id, exc)
+        return web.json_response({"ok": False, "error": "send_failed"})
+    return web.json_response({"ok": True})
+
+
+async def api_verify_code(request: web.Request) -> web.Response:
+    """Kod to'g'ri bo'lsa — muddatли SESSIYA (sid) beradi."""
+    async with AsyncSessionLocal() as session:
+        user = await _link_user(request, session)
+    if user is None:
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+    code = (request.query.get("code") or "").strip()
+    entry = _pending_codes.get(user.id)
+    now = int(time.time())
+    if entry is None or entry["exp"] < now:
+        _pending_codes.pop(user.id, None)
+        return web.json_response({"ok": False, "error": "expired"})
+    entry["attempts"] += 1
+    if entry["attempts"] > CODE_MAX_ATTEMPTS:
+        _pending_codes.pop(user.id, None)
+        return web.json_response({"ok": False, "error": "too_many"})
+    if not code or not hmac.compare_digest(code, entry["code"]):
+        return web.json_response({"ok": False, "error": "wrong", "left": CODE_MAX_ATTEMPTS - entry["attempts"]})
+
+    _pending_codes.pop(user.id, None)  # bir martalik — ishlatildi
+    return web.json_response({"ok": True, "sid": make_session(user.id)})
+
+
+def create_webapp(bot=None) -> web.Application:
     app = web.Application()
+    app["bot"] = bot
     app.router.add_get("/", index)
+    app.router.add_get("/api/request-code", api_request_code)
+    app.router.add_get("/api/verify-code", api_verify_code)
     app.router.add_get("/api/meta", api_meta)
     app.router.add_get("/api/summary", api_summary)
     app.router.add_get("/api/ball", api_ball)
