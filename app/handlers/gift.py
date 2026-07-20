@@ -4,7 +4,8 @@ from __future__ import annotations
 
 Oqim: doktor tanlash (faqat botga ulanganlar) -> miqdor -> TOP menejerga REAL-TIME
 tasdiq so'rovi. TOP tasdiqlagandagina ball yuboruvchi balansidan ATOMIK ayirilib
-doktorga o'tadi; doktorga xabar boradi va 6 soatda o'chadi.
+doktorga o'tadi. DOKTORGA XABAR YUBORILMAYDI (foydalanuvchi qarori) — faqat
+yuboruvchiga tasdiq/rad natijasi boradi.
 
 «💠 Балл баланси» dagi o'tkazmadan farqi: u yerda tasdiqni QABUL QILUVCHI beradi,
 bu yerda esa TOP menejer. Ball manbai ikkalasida ham bir xil — yuboruvchi balansi,
@@ -37,7 +38,6 @@ from app.handlers.utils import require_callback_user, require_user, safe
 from app.i18n import normalize, role_label, t, variants
 from app.keyboards.reply import gift_approve_keyboard
 from app.services.listing import show_list
-from app.services.notify import send_to_doctor
 from app.services.security import can_approve_gift, can_send_gift, doctor_visible_to
 
 logger = logging.getLogger(__name__)
@@ -253,25 +253,9 @@ async def gift_ok(callback: CallbackQuery, session: AsyncSession, lang: str) -> 
 
     await callback.message.edit_text(_gift_card(lang, tx) + "\n\n" + t(lang, "gift_approved", id=tx.id))
 
-    # Doktorga xabar — 6 soatda avto-o'chadi (DOCTOR_MESSAGE_TTL).
-    if tx.to_doctor is not None:
-        doc_balance = await get_ball_balance(session, doctor_id=tx.to_doctor.id)
-        doc_lang = normalize(tx.to_doctor.bot_user.language) if tx.to_doctor.bot_user else lang
-        sent = await send_to_doctor(
-            callback.bot,
-            session,
-            tx.to_doctor,
-            t(
-                doc_lang,
-                "gift_doctor_notice",
-                sender=escape(tx.from_user.full_name) if tx.from_user else "-",
-                amount=amount,
-                balance=doc_balance,
-            ),
-        )
-        if sent:
-            await session.commit()
-
+    # DOKTORGA XABAR YUBORILMAYDI (foydalanuvchi qarori): sovg'a balli jimgina
+    # doktor hisobiga qo'shiladi, u haqida doktorga bildirishnoma bormaydi.
+    # Faqat yuboruvchiga tasdiq xabari boradi.
     sender_balance = await get_ball_balance(session, user_id=tx.from_user_id)
     await _notify_sender(
         callback.bot, tx, "gift_approved_sender",
