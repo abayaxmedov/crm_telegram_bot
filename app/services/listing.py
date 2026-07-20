@@ -42,6 +42,7 @@ from app.db.repositories import (
     warehouse_request_total,
 )
 from app.i18n import role_label, t
+from app.db.repositories import attach_doctor_categories
 from app.services.entity_approvals import badge
 from app.services.security import (
     OWNER_BALL_TARGET_ROLES,
@@ -242,13 +243,21 @@ def _wholesaler_row(w: Any, lang: str) -> str:
     return f"#{w.id} | {escape(w.name)} | ИНН {inn} | {phone}"
 
 
+async def _fetch_doctors_with_category(session: AsyncSession, user: User, ctx: dict) -> list[Any]:
+    """Doktorlar ro'yxati + har biriga A/B/C kategoriya (bitta guruh-so'rov bilan)."""
+    doctors = await list_doctors_visible(session, user, limit=5000)
+    await attach_doctor_categories(session, doctors)
+    return doctors
+
+
 def _doc_dir_row(d: Any, lang: str) -> str:
     phone = escape(str(d.phone_number)) if d.phone_number else "-"
     bu = getattr(d, "bot_user", None)
     tg = bu.telegram_id if bu and bu.telegram_id else "—"
     uname = f"@{escape(bu.username)}" if bu and bu.username else "—"
+    cat = getattr(d, "_category", "C")
     return (
-        f"{badge(d.approval_status)} #{d.id} | {escape(d.full_name)} | {phone} | "
+        f"{badge(d.approval_status)} 🏅{cat} #{d.id} | {escape(d.full_name)} | {phone} | "
         f"🆔 {tg} | {uname} | 💠 {int(d.ball_balance or 0)}"
     )
 
@@ -303,7 +312,7 @@ def register_default_lists() -> None:
     # --- Doktorlar (ko'rish/tanlash) ---
     register_list(ListSpec(
         key="doc_dir", pick_prefix="doc_info",
-        fetch=lambda s, u, c: list_doctors_visible(s, u, limit=5000),
+        fetch=_fetch_doctors_with_category,
         label=lambda d: d.full_name, row=_doc_dir_row,
         header_key="doctors_header", empty_key="doctors_empty",
     ))

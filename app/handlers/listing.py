@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApprovalStatus, Role
 from app.db.repositories import (
+    doctor_ball_stats,
     get_doctor_full,
     get_lpu_full,
     get_pharmacy_full,
@@ -140,6 +141,8 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
                 [InlineKeyboardButton(text=t(lang, "btn_doctor_edit"), callback_data=f"doc_edit:{doctor.id}")]
             ]
         )
+    stats = await doctor_ball_stats(session, doctor.id)
+    avg_days = stats["avg_return_days"]
     await callback.message.answer(
         t(
             lang, "doctor_card",
@@ -147,7 +150,10 @@ async def doctor_card(callback: CallbackQuery, session: AsyncSession, lang: str)
             tg=tg, username=username,
             region=safe(doctor.region.name if doctor.region else None),
             lpu=safe(doctor.lpu.name if doctor.lpu else None),
-            category=safe(doctor.class_category), location=safe(doctor.location_text),
+            category=stats["category"], per10=stats["per10_30"],
+            avg_days=(avg_days if avg_days is not None else t(lang, "category_no_data")),
+            monthly=stats["monthly_return"],
+            location=safe(doctor.location_text),
             manager=safe(doctor.manager.full_name if doctor.manager else None),
             ball=int(doctor.ball_balance or 0),
         ),

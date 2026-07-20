@@ -1524,7 +1524,8 @@ STRINGS: dict[str, dict[str, str]] = {
             "🔗 {username}\n"
             "🌐 {region}\n"
             "🏥 ЛПУ: {lpu}\n"
-            "🏷 {category}\n"
+            "🏅 Категория: <b>{category}</b> (сўнгги 30 кун: {per10} балл/10 кун)\n"
+            "📈 Ўртача қайтиш: {avg_days} кун | Ойига: {monthly} балл\n"
             "📍 {location}\n"
             "👤 {manager}\n"
             "💠 Балл: {ball}"
@@ -1537,12 +1538,14 @@ STRINGS: dict[str, dict[str, str]] = {
             "🔗 {username}\n"
             "🌐 {region}\n"
             "🏥 ЛПУ: {lpu}\n"
-            "🏷 {category}\n"
+            "🏅 Категория: <b>{category}</b> (посл. 30 дн: {per10} балл/10 дн)\n"
+            "📈 Ср. возврат: {avg_days} дн | В месяц: {monthly} балл\n"
             "📍 {location}\n"
             "👤 {manager}\n"
             "💠 Балл: {ball}"
         ),
     },
+    "category_no_data": {UZ_CYRL: "—", RU: "—"},
     # ================= ЛПУ (Davolash-profilaktika muassasasi) =================
     "btn_lpu": {UZ_CYRL: "🏥 ЛПУ", RU: "🏥 ЛПУ"},
     "lpu_text": {

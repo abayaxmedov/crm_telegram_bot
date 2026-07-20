@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.db.models import BallTxKind, BallTxStatus, Role, User
 from app.db.repositories import (
     ball_balances_overview,
+    doctors_ball_overview,
     ball_transactions_in_period,
     list_regions,
     list_sellers,
@@ -254,10 +255,27 @@ async def api_ball(request: web.Request) -> web.Response:
         )
 
 
+async def api_doctors(request: web.Request) -> web.Response:
+    """Doktorlar kategoriyasi (A/B/C) + savdo qaytishи statистикаси."""
+    async with AsyncSessionLocal() as session:
+        user = await _auth_user(request, session)
+        if user is None:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        rows = await doctors_ball_overview(session, user)
+        region_id = _int_or_none(request.query.get("region_id"))
+        if region_id is not None:
+            rows = [r for r in rows if r.get("region_id") == region_id or user.role.value == "owner"]
+        counts = {"A": 0, "B": 0, "C": 0}
+        for r in rows:
+            counts[r["category"]] = counts.get(r["category"], 0) + 1
+        return web.json_response({"counts": counts, "doctors": rows})
+
+
 def create_webapp() -> web.Application:
     app = web.Application()
     app.router.add_get("/", index)
     app.router.add_get("/api/meta", api_meta)
     app.router.add_get("/api/summary", api_summary)
     app.router.add_get("/api/ball", api_ball)
+    app.router.add_get("/api/doctors", api_doctors)
     return app

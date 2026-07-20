@@ -1719,6 +1719,177 @@ async def ball_balances_overview(session: AsyncSession, actor: User) -> tuple[li
     return users, doctors
 
 
+
+# ==================== Doktor kategoriyasi (A/B/C) — SAVDO tezligiga qarab ====================
+#
+# "Ball qaytishi" = doktorga berilgan ball SOTUV orqali ayirilishi (SALE_DEDUCT).
+# Kategoriya har 10 kunlik savdo balli tezligiga qarab (foydalanuvchi qoidasi):
+#   >= 1000 ball / 10 kun -> A;  500..1000 -> B;  < 500 -> C.
+# Bot belgisi OXIRGI 30 KUN bo'yicha (joriy tezlik); web panelда faoliyat boshidan o'rtacha ham.
+
+CATEGORY_A_THRESHOLD = 1000  # 10 kunlik ball
+CATEGORY_B_THRESHOLD = 500
+
+
+def _as_utc(dt: "datetime | None") -> "datetime | None":
+    """Naive datetime'ni UTC-aware qiladi (SQLite naive, Postgres aware qaytaradi)."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def ball_category(per_10_days: float) -> str:
+    """10 kunlik savdo balli tezligiga qarab A/B/C."""
+    if per_10_days >= CATEGORY_A_THRESHOLD:
+        return "A"
+    if per_10_days >= CATEGORY_B_THRESHOLD:
+        return "B"
+    return "C"
+
+
+async def doctor_returned_ball_map(
+    session: AsyncSession, doctor_ids: list[int], *, start: datetime | None = None, end: datetime | None = None
+) -> dict[int, int]:
+    """Doktorlar bo'yicha davr ichида SOTUV orqali qaytган ball (SALE_DEDUCT yig'indisi)."""
+    if not doctor_ids:
+        return {}
+    query = select(
+        BallTransaction.to_doctor_id, func.coalesce(func.sum(BallTransaction.amount), 0)
+    ).where(
+        BallTransaction.kind == BallTxKind.SALE_DEDUCT,
+        BallTransaction.to_doctor_id.in_(doctor_ids),
+    )
+    if start is not None:
+        query = query.where(BallTransaction.created_at >= start)
+    if end is not None:
+        query = query.where(BallTransaction.created_at <= end)
+    query = query.group_by(BallTransaction.to_doctor_id)
+    return {doc_id: int(total or 0) for doc_id, total in (await session.execute(query)).all()}
+
+
+async def attach_doctor_categories(session: AsyncSession, doctors: list) -> None:
+    """Har doktorга `_category` (A/B/C) biriktiradi — OXIRGI 30 KUN savdo tezligи bo'yicha.
+
+    Ro'yxatда belgи ko'rsatиш uchun (bitta guruh-so'rov, N ta so'rov emas)."""
+    ids = [d.id for d in doctors]
+    if not ids:
+        return
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    returned = await doctor_returned_ball_map(session, ids, start=since)
+    for d in doctors:
+        per10 = returned.get(d.id, 0) / 3.0  # 30 kun / 3 = 10 kunlik tezlik
+        d._category = ball_category(per10)
+
+
+def _avg_return_days(grants: list[tuple], deductions: list[tuple]) -> float | None:
+    """FIFO: har ayirilgan ball eng eski berilган ballга taqqoslаб, o'rtacha "yosh" (kun).
+
+    grants/deductions: (created_at, amount) ro'yxatlarи. Berilmagan (queue bo'sh)
+    ball ayirилса — u yoshга hisoblanmaydi (nimadир berilmaган narsани "qaytди" deb bo'lmaydi).
+    None => hali hech ball qaytmagan yoki taqqoslab bo'lmaydi."""
+    from collections import deque
+
+    queue: deque = deque()  # (grant_date, remaining)
+    gi = 0
+    grants = sorted(((_as_utc(g[0]), g[1]) for g in grants), key=lambda x: x[0])
+    deductions = [(_as_utc(d[0]), d[1]) for d in deductions]
+    weighted_days = 0.0
+    consumed_total = 0
+    for ded_date, ded_amount in sorted(deductions, key=lambda x: x[0]):
+        # Ayirish sanasигача berilган barcha grantларни queue'га qo'shamиz.
+        while gi < len(grants) and grants[gi][0] <= ded_date:
+            queue.append([grants[gi][0], int(grants[gi][1])])
+            gi += 1
+        need = int(ded_amount)
+        while need > 0 and queue:
+            grant_date, remaining = queue[0]
+            take = min(need, remaining)
+            weighted_days += take * max(0, (ded_date - grant_date).days)
+            consumed_total += take
+            need -= take
+            remaining -= take
+            if remaining <= 0:
+                queue.popleft()
+            else:
+                queue[0][1] = remaining
+    if consumed_total <= 0:
+        return None
+    return round(weighted_days / consumed_total, 1)
+
+
+async def doctor_ball_stats(session: AsyncSession, doctor_id: int) -> dict:
+    """Bitta doktor uchun to'liq ball statistikasи (karta + web uchun).
+
+    Qaytadi: category, returned_30 (oxirgi 30 kun), per10_30, returned_total,
+    lifetime_per10, monthly_return, avg_return_days."""
+    now = datetime.now(timezone.utc)
+    since30 = now - timedelta(days=30)
+
+    returned_30 = (await doctor_returned_ball_map(session, [doctor_id], start=since30)).get(doctor_id, 0)
+    returned_total = (await doctor_returned_ball_map(session, [doctor_id])).get(doctor_id, 0)
+
+    # Faoliyat boshi = doktor YARATILGAN sana ("shu doktor bilan ishlаганimizdan beri").
+    # Barqaror va tushunарli; birinchи ball harakatига bog'lasak rate sakraб turardи.
+    first = _as_utc(await session.scalar(select(Doctor.created_at).where(Doctor.id == doctor_id)))
+    if first is None:  # eski/nuqson yozuv — birinchи ball harakatига tayanamиz
+        first = _as_utc(await session.scalar(
+            select(func.min(BallTransaction.created_at)).where(BallTransaction.to_doctor_id == doctor_id)
+        ))
+    days_active = max(1, (now - first).days) if first is not None else 1
+
+    lifetime_per10 = returned_total / days_active * 10
+    monthly_return = returned_total / days_active * 30
+
+    # FIFO uchun grantlar (TRANSFER/GIFT, ACCEPTED) va ayirishlar (SALE_DEDUCT).
+    grant_rows = (
+        await session.execute(
+            select(BallTransaction.created_at, BallTransaction.amount).where(
+                BallTransaction.to_doctor_id == doctor_id,
+                BallTransaction.kind.in_((BallTxKind.TRANSFER, BallTxKind.GIFT)),
+                BallTransaction.status == BallTxStatus.ACCEPTED,
+            )
+        )
+    ).all()
+    ded_rows = (
+        await session.execute(
+            select(BallTransaction.created_at, BallTransaction.amount).where(
+                BallTransaction.to_doctor_id == doctor_id,
+                BallTransaction.kind == BallTxKind.SALE_DEDUCT,
+            )
+        )
+    ).all()
+
+    return {
+        "category": ball_category(returned_30 / 3.0),
+        "returned_30": int(returned_30),
+        "per10_30": round(returned_30 / 3.0, 1),
+        "returned_total": int(returned_total),
+        "lifetime_per10": round(lifetime_per10, 1),
+        "monthly_return": round(monthly_return, 1),
+        "avg_return_days": _avg_return_days(list(grant_rows), list(ded_rows)),
+    }
+
+
+async def doctors_ball_overview(
+    session: AsyncSession, actor: User, *, start: datetime | None = None, end: datetime | None = None
+) -> list[dict]:
+    """Web panel: ko'rinadigan doktorlar bo'yicha kategoriya + statistika ro'yxatи."""
+    doctors = await list_doctors_visible(session, actor, limit=5000)
+    result = []
+    for d in doctors:
+        stats = await doctor_ball_stats(session, d.id)
+        stats["doctor_id"] = d.id
+        stats["name"] = d.full_name
+        stats["region"] = d.region.name if d.region else None
+        stats["region_id"] = d.region_id
+        stats["balance"] = int(d.ball_balance or 0)
+        result.append(stats)
+    # A -> B -> C, keyin savdo tezligи bo'yicha.
+    order = {"A": 0, "B": 1, "C": 2}
+    result.sort(key=lambda x: (order.get(x["category"], 3), -x["per10_30"]))
+    return result
+
+
 async def ball_transactions_in_period(
     session: AsyncSession,
     actor: User,

@@ -78,6 +78,15 @@
     <div class="panel"><h3>Ходимлар кесимида (доктор эгаси бўйича)</h3>
       <table id="tRep"><thead><tr><th>Ходим</th><th>Регион</th><th class="num">Сотув</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
     </div>
+    <div class="panel"><h3>🏅 Докторлар категорияси (A/B/C)</h3>
+      <div id="catCounts" style="margin-bottom:8px;color:var(--muted)"></div>
+      <table id="tDocCat"><thead><tr>
+        <th>Кат.</th><th>Доктор</th><th>Регион</th>
+        <th class="num">Сўнгги 30к (балл/10к)</th><th class="num">Ўрт. қайтиш (кун)</th>
+        <th class="num">Ойига</th><th class="num">Фаолият бошидан (балл/10к)</th><th class="num">Баланс</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
     <div class="panel"><h3>Препаратлар кесимида</h3>
       <table id="tDrug"><thead><tr><th>Препарат</th><th class="num">Упак.</th><th class="num">Тушум</th><th class="num">Балл</th></tr></thead><tbody></tbody></table>
     </div>
@@ -194,8 +203,23 @@ async function loadBall(){
     `<td class="num">${fmt(tx.amount)}</td><td>${STATUS[tx.status]||tx.status}</td>`);
 }
 
+const CAT_COLOR = { A:"#1e8e4e", B:"#c8860a", C:"#b23b3b" };
+async function loadDoctors(){
+  const d = await getJSON("/api/doctors?" + params());
+  document.getElementById("catCounts").textContent =
+    `A: ${d.counts.A||0} | B: ${d.counts.B||0} | C: ${d.counts.C||0} — жами ${d.doctors.length} доктор`;
+  fillTable("#tDocCat", d.doctors, r =>
+    `<td><b style="color:${CAT_COLOR[r.category]||"#888"}">${r.category}</b></td>`+
+    `<td>${r.name}</td><td>${r.region||"—"}</td>`+
+    `<td class="num">${fmt(r.returned_30)} (${r.per10_30})</td>`+
+    `<td class="num">${r.avg_return_days==null?"—":r.avg_return_days}</td>`+
+    `<td class="num">${fmt(r.monthly_return)}</td>`+
+    `<td class="num">${fmt(r.lifetime_per10)}</td>`+
+    `<td class="num ${r.balance<0?"neg":"pos"}">${fmt(r.balance)}</td>`);
+}
+
 async function refresh(){
-  try { await Promise.all([loadSummary(), loadBall()]); }
+  try { await Promise.all([loadSummary(), loadBall(), loadDoctors()]); }
   catch (e) { showError(e.message); }
 }
 

@@ -53,7 +53,7 @@ class DoctorFlow(StatesGroup):
     full_name = State()
     phone = State()
     location = State()
-    category = State()
+    # category state OLIB TASHLANDI — kategoriya endi savdodan avtomatik (A/B/C).
     notes = State()
     region = State()
     lpu = State()
@@ -141,14 +141,9 @@ async def doctor_phone(message: Message, state: FSMContext, lang: str) -> None:
 
 @router.message(DoctorFlow.location)
 async def doctor_location(message: Message, state: FSMContext, lang: str) -> None:
+    # Kategoriya (A/B/C) endi QO'LDA so'ralmaydi — u SAVDO tezligidan avtomatik hisoblanadi
+    # (yangi doktor sotuvsiz -> C). Shuning uchun lokatsiyadan keyin darrov izoh.
     await state.update_data(location=clean_optional(message.text))
-    await state.set_state(DoctorFlow.category)
-    await message.answer(t(lang, "enter_category"))
-
-
-@router.message(DoctorFlow.category)
-async def doctor_category(message: Message, state: FSMContext, lang: str) -> None:
-    await state.update_data(category=clean_optional(message.text))
     await state.set_state(DoctorFlow.notes)
     await message.answer(t(lang, "enter_notes_dash"))
 
@@ -568,17 +563,6 @@ async def doctor_edit_phone(callback: CallbackQuery, session: AsyncSession, stat
     await state.update_data(edit_doc_id=doctor.id, edit_field="phone")
     await state.set_state(DoctorEditFlow.value)
     await callback.message.answer(t(lang, "enter_phone"))
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("de_cat:"))
-async def doctor_edit_category(callback: CallbackQuery, session: AsyncSession, state: FSMContext, lang: str) -> None:
-    editor, doctor = await _require_doctor_editor(callback, session, lang)
-    if editor is None or doctor is None:
-        return
-    await state.update_data(edit_doc_id=doctor.id, edit_field="category")
-    await state.set_state(DoctorEditFlow.value)
-    await callback.message.answer(t(lang, "enter_category"))
     await callback.answer()
 
 

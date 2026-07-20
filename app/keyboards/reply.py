@@ -211,10 +211,7 @@ def doctor_edit_menu_keyboard(lang: str, doctor_id: int) -> InlineKeyboardMarkup
                 InlineKeyboardButton(text=t(lang, "btn_de_name"), callback_data=f"de_name:{doctor_id}"),
                 InlineKeyboardButton(text=t(lang, "btn_de_phone"), callback_data=f"de_phone:{doctor_id}"),
             ],
-            [
-                InlineKeyboardButton(text=t(lang, "btn_de_category"), callback_data=f"de_cat:{doctor_id}"),
-                InlineKeyboardButton(text=t(lang, "btn_de_region"), callback_data=f"de_region:{doctor_id}"),
-            ],
+            [InlineKeyboardButton(text=t(lang, "btn_de_region"), callback_data=f"de_region:{doctor_id}")],
             [InlineKeyboardButton(text=t(lang, "btn_de_lpu"), callback_data=f"de_lpu:{doctor_id}")],
         ]
     )
