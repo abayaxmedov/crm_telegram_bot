@@ -299,6 +299,31 @@ async def seed(count: int) -> None:
         await s.flush()
         tr.add_all("ball_transactions", extra_tx)
 
+        # ---------- Doktor kategoriyasi spread (A/B/C teng ko'rinsin) ----------
+        # Bot belgisi OXIRGI 30 KUN savdo tezligiga qarab: >=1000/10kun A, 500-1000 B, <500 C.
+        # Uchdan bir A, uchdan bir B, uchdan bir C bo'lishi uchun oxirgi 28 kunga
+        # boshqariladigan SALE_DEDUCT tranzaksiyalar qo'shamiz.
+        cat_tx = []
+        for idx, doc in enumerate(doctors):
+            bucket = idx % 3
+            if bucket == 0:
+                target = RNG.randint(3500, 6000)   # A: 30 kunda >=3000
+            elif bucket == 1:
+                target = RNG.randint(1600, 2900)   # B: 1500-3000
+            else:
+                target = RNG.randint(0, 1200)      # C: <1500
+            remaining = target
+            while remaining > 0:
+                chunk = min(remaining, RNG.randint(300, 1500))
+                cat_tx.append(BallTransaction(
+                    kind=BallTxKind.SALE_DEDUCT, status=BallTxStatus.ACCEPTED, amount=chunk,
+                    to_doctor_id=doc.id, created_at=_days_ago(RNG.randint(1, 28)),
+                ))
+                remaining -= chunk
+        s.add_all(cat_tx)
+        await s.flush()
+        tr.add_all("ball_transactions", cat_tx)
+
         # ---------- Складга заявкалар (+ items) ----------
         wh_reqs = []
         for i in range(count):
