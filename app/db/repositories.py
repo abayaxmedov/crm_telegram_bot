@@ -1937,6 +1937,7 @@ async def sales_item_rows(
     end: datetime | None = None,
     region_id: int | None = None,
     rep_id: int | None = None,
+    drug_id: int | None = None,
 ) -> list[dict]:
     """Sotuv pozitsiyalari (tekis qatorlar) — analitika/Excel uchun.
 
@@ -1967,6 +1968,8 @@ async def sales_item_rows(
     if rep_id is not None:
         # Xodim = doktor EGASI (uni kim yaratgan), sotuvni kim kiritgani emas.
         query = query.where(Doctor.manager_id == rep_id)
+    if drug_id is not None:
+        query = query.where(SaleItem.drug_id == drug_id)
 
     rows: list[dict] = []
     for item, sale, rep, region, pharmacy, doctor, owner in (await session.execute(query)).all():
@@ -1983,6 +1986,7 @@ async def sales_item_rows(
                 "region_id": region.id if region else None,
                 "region_name": region.name if region else None,
                 "pharmacy": pharmacy.name if pharmacy else None,
+                "drug_id": item.drug_id,
                 "doctor": doctor.full_name if doctor else None,
                 "drug_name": item.drug_name,
                 "qty": int(item.quantity or 0),

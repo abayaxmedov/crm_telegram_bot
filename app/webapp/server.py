@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.db.models import BallTxKind, BallTxStatus, Role, User
 from app.db.repositories import (
     ball_balances_overview,
+    list_all_drugs,
     doctors_ball_overview,
     ball_transactions_in_period,
     list_regions,
@@ -85,10 +86,12 @@ async def api_meta(request: web.Request) -> web.Response:
             return web.json_response({"error": "unauthorized"}, status=401)
         regions = await list_regions(session)
         sellers = await list_sellers(session)
+        drugs = await list_all_drugs(session)
         return web.json_response(
             {
                 "user": {"name": user.full_name, "role": user.role.value},
                 "regions": [{"id": r.id, "name": r.name} for r in regions],
+                "drugs": [{"id": d.id, "name": d.name} for d in drugs],
                 "reps": [
                     {
                         "id": u.id,
@@ -112,8 +115,11 @@ async def api_summary(request: web.Request) -> web.Response:
         start, end = _parse_period(request)
         region_id = _int_or_none(request.query.get("region_id"))
         rep_id = _int_or_none(request.query.get("rep_id"))
+        drug_id = _int_or_none(request.query.get("drug_id"))
 
-        rows = await sales_item_rows(session, start=start, end=end, region_id=region_id, rep_id=rep_id)
+        rows = await sales_item_rows(
+            session, start=start, end=end, region_id=region_id, rep_id=rep_id, drug_id=drug_id
+        )
 
         totals = {
             "sales": len({r["sale_id"] for r in rows}),

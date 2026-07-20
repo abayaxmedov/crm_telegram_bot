@@ -59,6 +59,7 @@
     </div>
     <div><label>Регион</label><select id="region"><option value="">Барчаси</option></select></div>
     <div><label>Ходим (доктор эгаси)</label><select id="rep"><option value="">Барчаси</option></select></div>
+    <div><label>Препарат</label><select id="drug"><option value="">Барчаси</option></select></div>
     <div><button id="apply">Кўрсатиш</button></div>
   </div>
 
@@ -130,8 +131,10 @@ function params(){
   }
   const region = document.getElementById("region").value;
   const rep = document.getElementById("rep").value;
+  const drug = document.getElementById("drug").value;
   if (region) p.set("region_id", region);
   if (rep) p.set("rep_id", rep);
+  if (drug) p.set("drug_id", drug);
   return p.toString();
 }
 
@@ -149,6 +152,8 @@ async function loadMeta(){
   meta.regions.forEach(r => regionSel.add(new Option(r.name, r.id)));
   const repSel = document.getElementById("rep");
   meta.reps.forEach(u => repSel.add(new Option(u.name + (u.region ? " — " + u.region : ""), u.id)));
+  const drugSel = document.getElementById("drug");
+  (meta.drugs||[]).forEach(d => drugSel.add(new Option(d.name, d.id)));
 }
 
 function fillTable(id, rows, cells){
