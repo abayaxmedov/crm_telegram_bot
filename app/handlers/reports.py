@@ -454,7 +454,7 @@ async def rep_pick_region(callback: CallbackQuery, session: AsyncSession, state:
         await callback.answer(t(lang, "reports_no_perm_drill"), show_alert=True)
         return
     await callback.answer()
-    await _show_employees(callback.message, session, lang, role=role, region_id=region_id)
+    await _show_employees(callback.message, session, user, lang, state, role=role, region_id=region_id)
 
 
 @router.callback_query(F.data.startswith("rep_emp:"))
