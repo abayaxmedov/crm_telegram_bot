@@ -61,6 +61,7 @@ def _run_light_migrations(sync_conn: Connection) -> None:
     add("sales", "total_ball", "total_ball INTEGER DEFAULT 0")
     add("contracts", "file_id", "file_id VARCHAR(255)")
     add("daily_reports", "doctor_id", "doctor_id INTEGER")
+    add("daily_reports", "voice_text", "voice_text TEXT")
     add("daily_reports", "pharmacy_id", "pharmacy_id INTEGER")
     add("daily_reports", "latitude", "latitude NUMERIC(10, 7)")
     add("daily_reports", "longitude", "longitude NUMERIC(10, 7)")

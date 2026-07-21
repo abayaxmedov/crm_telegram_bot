@@ -1482,6 +1482,10 @@ STRINGS: dict[str, dict[str, str]] = {
         UZ_CYRL: "📝 {date} | {target} | {text}",
         RU: "📝 {date} | {target} | {text}",
     },
+    "report_transcript": {
+        UZ_CYRL: "🗣 <b>Матн (овоздан):</b> {text}",
+        RU: "🗣 <b>Текст (из аудио):</b> {text}",
+    },
     "report_voice_cap": {
         UZ_CYRL: "🎤 {date} | {target}{text}",
         RU: "🎤 {date} | {target}{text}",

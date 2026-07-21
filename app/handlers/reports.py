@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from decimal import Decimal
 from html import escape
+from io import BytesIO
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import ApprovalStatus, Role, User
 from app.db.repositories import (
     add_daily_report,
@@ -235,6 +240,42 @@ async def report_text(message: Message, session: AsyncSession, state: FSMContext
     await message.answer(t(lang, "report_ask_geo"), reply_markup=report_geo_keyboard(lang))
 
 
+logger = logging.getLogger(__name__)
+_bg_tasks: set = set()  # fon vazifalarини GC'dan saqlaymiz
+
+
+async def _transcribe_voice_report(bot, file_id: str, report_id: int) -> None:
+    """Ovozli hisobotni matnga o'giradi (fon) va `voice_text` ga yozadi.
+
+    Xato bo'lsa jimgina o'tadi — hisobot baribir saqlangan, ovoz eshitiladi."""
+    from app.db.models import DailyReport
+    from app.db.session import AsyncSessionLocal
+    from app.services.stt import transcribe
+
+    try:
+        buf = BytesIO()
+        tg_file = await bot.get_file(file_id)
+        await bot.download_file(tg_file.file_path, destination=buf)
+        text = await transcribe(buf.getvalue(), filename="voice.ogg")
+        if not text:
+            return
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                sa_update(DailyReport).where(DailyReport.id == report_id).values(voice_text=text)
+            )
+            await session.commit()
+    except Exception as exc:
+        logger.warning("voice transcription failed (report=%s): %s", report_id, exc)
+
+
+def _schedule_transcription(bot, file_id: str | None, report_id: int) -> None:
+    if not file_id or not settings.stt_enabled():
+        return
+    task = asyncio.create_task(_transcribe_voice_report(bot, file_id, report_id))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
 async def _finalize_report(message: Message, session, state, user, lang, *, lat, lng) -> None:
     data = await state.get_data()
     ttype = data["target_type"]
@@ -251,6 +292,8 @@ async def _finalize_report(message: Message, session, state, user, lang, *, lat,
         longitude=lng,
     )
     await session.commit()
+    # Ovozли hisobot bo'lsa — FON REJIMИДА matnga o'giramiz (bloklamaydi).
+    _schedule_transcription(message.bot, data.get("voice_file_id"), report.id)
     await state.clear()
     await message.answer(
         t(lang, "report_done", id=report.id, target=safe(data.get("target_name"))),
@@ -303,8 +346,10 @@ def _geo_suffix(report, lang: str) -> str:
 
 
 def _report_line(report) -> str:
-    kind = "voice" if report.voice_file_id else "text"
-    preview = (report.text or "").replace("\n", " ")[:80] or "-"
+    kind = "🎙" if report.voice_file_id else "✍️"
+    # Ovozли bo'lsa — o'girilган matn (voice_text); yozма bo'lsa — o'z matni.
+    body = report.voice_text or report.text or ""
+    preview = body.replace("\n", " ")[:80] or "-"
     return f"#{report.id} | {safe(report.target_type)} | {safe(report.target_name)} | {kind} | {escape(preview)}"
 
 
@@ -464,6 +509,9 @@ async def rep_pick_period(callback: CallbackQuery, session: AsyncSession, lang: 
         if r.voice_file_id:
             cap = t(lang, "report_voice_cap", date=date, target=target, text=(" | " + escape(body)) if body else "")
             cap = cap + geo
+            # Ovoz matnга o'girilган bo'lsa (STT) — captionга qo'shamiz.
+            if r.voice_text:
+                cap = cap + "\n" + t(lang, "report_transcript", text=escape(r.voice_text))
             try:
                 await callback.message.answer_voice(voice=r.voice_file_id, caption=cap[:1024])
             except Exception:

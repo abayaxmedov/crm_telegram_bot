@@ -66,6 +66,13 @@ class Settings:
     invoice_oked: str = ""         # ОКЭД (ixtiyoriy)
     invoice_vat_percent: int = 12  # НДС stavkasi (narx НДСsiz kiritiladi, ustiga qo'shiladi)
 
+    # ---- Ovozli hisobotni matnga o'girish (ElevenLabs Scribe STT) ----
+    elevenlabs_api_key: str = ""              # bo'sh bo'lsa — STT o'chirilgan (no-op)
+    elevenlabs_stt_model: str = "scribe_v1"   # ElevenLabs STT modeli
+
+    def stt_enabled(self) -> bool:
+        return bool(self.elevenlabs_api_key)
+
     def invoice_ready(self) -> bool:
         """Majburiy rekvizitlar to'liq bo'lmasa PDF yasalmaydi (yarim hujjat yuborilmaydi).
 
@@ -105,5 +112,7 @@ settings = Settings(
     invoice_phone=os.getenv("INVOICE_PHONE", "").strip(),
     invoice_oked=os.getenv("INVOICE_OKED", "").strip(),
     invoice_vat_percent=int(os.getenv("INVOICE_VAT_PERCENT", "12").strip() or "12"),
+    elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", "").strip(),
+    elevenlabs_stt_model=os.getenv("ELEVENLABS_STT_MODEL", "scribe_v1").strip() or "scribe_v1",
 )
 

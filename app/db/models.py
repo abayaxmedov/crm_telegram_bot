@@ -270,6 +270,8 @@ class DailyReport(Base, TimestampMixin):
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id", ondelete="SET NULL"))
     text: Mapped[str | None] = mapped_column(Text)
     voice_file_id: Mapped[str | None] = mapped_column(String(255))
+    # Ovozli hisobot matnga o'girilgani (ElevenLabs STT — fon rejimida to'ladi).
+    voice_text: Mapped[str | None] = mapped_column(Text)
     # Ixtiyoriy geolokatsiya (tashrif joyi).
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
