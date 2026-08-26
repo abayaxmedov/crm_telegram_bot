@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-"""Demo ma'lumot: har bo'limga ~30 tadan yozuv qo'shish va ANIQ o'chirish.
+"""Demo ma'lumot: realistik (aralash o'zbek+rus) yozuvlar qo'shish va ANIQ o'chirish.
 
 Ishlatish:
-    python scripts/demo_data.py seed [N]    # har bo'limga N (default 30) demo yozuv
+    python scripts/demo_data.py seed [N]    # N (default 30) -> "Katta" realistik to'plam
+                                             # ~14 viloyat, ~30 vakil, ~120 doktor, ~90 dorixona
     python scripts/demo_data.py clear        # FAQAT demo yozuvlarni o'chiradi
     python scripts/demo_data.py status       # nechta demo yozuv borligini ko'rsatadi
 
@@ -50,8 +51,111 @@ from app.db.models import (
 )
 from app.db.session import AsyncSessionLocal, engine
 
-DEMO_TAG = "[DEMO]"  # nomlarga qo'shiladigan belgi (ko'zga ko'rinishi uchun)
+DEMO_TAG = "[DEMO]"  # legacy — endi nomlarda ishlatilmaydi; clear MANIFEST orqali ishlaydi.
 RNG = random.Random(20260720)
+
+# ======================= Realistik ma'lumot pool'lari (Kirill) =======================
+# Regionlar — haqiqiy O'zbekiston viloyatlari (14 ta).
+VILOYATS = [
+    "Тошкент шаҳри", "Тошкент вилояти", "Самарқанд", "Бухоро", "Андижон",
+    "Фарғона", "Наманган", "Қашқадарё", "Сурхондарё", "Хоразм",
+    "Навоий", "Жиззах", "Сирдарё", "Қорақалпоғистон",
+]
+
+# Ismlar — aralash o'zbek + rus (foydalanuvchi tanlovi).
+UZ_MALE = ["Абдулла", "Ботир", "Дилшод", "Жасур", "Сардор", "Улуғбек", "Феруз",
+           "Шерзод", "Бекзод", "Отабек", "Санжар", "Аваз", "Нодир", "Хуршид", "Азиз"]
+UZ_FEMALE = ["Дилноза", "Малика", "Нигора", "Севара", "Гулнора", "Зулфия",
+             "Мадина", "Ойша", "Шаҳноза", "Феруза", "Камола", "Нозима"]
+UZ_SURNAME = ["Каримов", "Раҳимов", "Юсупов", "Тошматов", "Абдуллаев", "Эргашев",
+              "Мирзаев", "Умаров", "Холматов", "Насимов", "Йўлдошев", "Қодиров",
+              "Исмоилов", "Турсунов", "Саидов"]
+
+RU_MALE = ["Александр", "Дмитрий", "Сергей", "Иван", "Андрей", "Максим",
+           "Николай", "Владимир", "Артём", "Павел"]
+RU_FEMALE = ["Елена", "Ольга", "Наталья", "Ирина", "Светлана", "Татьяна",
+             "Анна", "Марина", "Юлия", "Екатерина"]
+RU_SURNAME = ["Иванов", "Петров", "Смирнов", "Кузнецов", "Соколов", "Попов",
+              "Волков", "Морозов", "Новиков", "Фёдоров"]
+
+# Dorilar — haqiqiy farmatsevtika nomlari.
+DRUG_NAMES = [
+    "Парацетамол 500мг", "Ибупрофен 400мг", "Амоксициллин 500мг", "Азитромицин 250мг",
+    "Цефтриаксон 1г", "Омепразол 20мг", "Метформин 850мг", "Аторвастатин 20мг",
+    "Лозартан 50мг", "Амлодипин 5мг", "Диклофенак 50мг", "Кетопрофен 100мг",
+    "Лоратадин 10мг", "Цетиризин 10мг", "Дротаверин 40мг", "Ранитидин 150мг",
+    "Фуросемид 40мг", "Эналаприл 10мг", "Флуконазол 150мг", "Ципрофлоксацин 500мг",
+    "Доксициклин 100мг", "Нимесулид 100мг", "Мелоксикам 15мг", "Преднизолон 5мг",
+    "Дексаметазон 4мг", "Глибенкламид 5мг", "Каптоприл 25мг", "Бисопролол 5мг",
+    "Валсартан 80мг", "Спиронолактон 25мг", "Гентамицин 80мг", "Нистатин",
+    "Аскорбин кислотаси", "Лоперамид 2мг", "Регидрон", "Хлоргексидин 0.05%",
+    "Кларитромицин 500мг", "Пантопразол 40мг", "Розувастатин 10мг", "Индапамид 2.5мг",
+]
+
+PHARM_BRANDS = ["Dori-Darmon", "Оксил Фарм", "Шифо Аптека", "Саломат Фарм", "Нур Аптека",
+                "Азиз Фарм", "Зам-Зам Фарм", "Мед Аптека", "Ихлос Фарм", "Дармон Плюс"]
+CLINIC_BRANDS = ["Шифо", "Саломатлик", "Медлайн", "Нур Мед", "Ситора Мед",
+                 "Оптима Мед", "Аква Мед", "Санита"]
+STREETS = ["Амир Темур", "Мустақиллик", "Алишер Навоий", "Бобур", "Фурқат",
+           "Шота Руставели", "Бунёдкор", "Чилонзор", "Мирзо Улуғбек", "Яшнобод",
+           "Ойбек", "Зулфияхоним", "Лабзак", "Кичик ҳалқа йўли"]
+VISIT_NOTES = [
+    "Врач билан учрашув, препаратлар тақдим этилди",
+    "Янги буюртма олинди",
+    "Дорихона қолдиғи текширилди",
+    "Акция шартлари тушунтирилди",
+    "Ҳамкорлик бўйича музокара ўтказилди",
+    "Тўлов масаласи муҳокама қилинди",
+    "Янги препарат тақдимоти бўлди",
+    "Шартнома янгиланди",
+    "Мижоз эҳтиёжлари аниқланди",
+    "Навбатдаги етказиб бериш режалаштирилди",
+]
+FIN_TITLES = ["Ижара тўлови", "Иш ҳақи", "Реклама харажати", "Транспорт харажати",
+              "Коммунал тўлов", "Препарат хариди", "Бонус тўлови", "Солиқ тўлови",
+              "Офис харажати", "Етказиб бериш"]
+
+
+def _person_name() -> str:
+    """Aralash o'zbek/rus, jinsga mos familiya (masc -ов, fem -ова)."""
+    if RNG.random() < 0.65:  # ko'proq o'zbek
+        if RNG.random() < 0.5:
+            return f"{RNG.choice(UZ_MALE)} {RNG.choice(UZ_SURNAME)}"
+        return f"{RNG.choice(UZ_FEMALE)} {RNG.choice(UZ_SURNAME)}а"
+    if RNG.random() < 0.5:
+        return f"{RNG.choice(RU_MALE)} {RNG.choice(RU_SURNAME)}"
+    return f"{RNG.choice(RU_FEMALE)} {RNG.choice(RU_SURNAME)}а"
+
+
+def _phone() -> str:
+    """Real O'zbekiston mobil formati: +998 XX XXXXXXX."""
+    code = RNG.choice(["90", "91", "93", "94", "95", "97", "98", "99", "88", "33"])
+    return f"+998{code}{RNG.randint(1000000, 9999999)}"
+
+
+def _inn() -> str:
+    return f"{RNG.randint(100000000, 999999999)}"  # 9 xonali (O'zbekiston yuridik shaxs)
+
+
+def _address(region: str) -> str:
+    return f"{region}, {RNG.choice(STREETS)} кўчаси, {RNG.randint(1, 180)}-уй"
+
+
+def _clinic_name(region: str) -> str:
+    return RNG.choice([
+        f"«{RNG.choice(CLINIC_BRANDS)}» клиникаси",
+        f"«{RNG.choice(CLINIC_BRANDS)}» тиббиёт маркази",
+        f"{region} марказий поликлиникаси",
+        f"{RNG.randint(1, 12)}-сон оилавий поликлиника",
+    ])
+
+
+def _pharmacy_name(region: str) -> str:
+    return RNG.choice([
+        f"«{RNG.choice(PHARM_BRANDS)}» дорихона",
+        f"«{RNG.choice(PHARM_BRANDS)}» дорихона №{RNG.randint(1, 40)}",
+    ])
+
 
 # clear paytida o'chirish tartibi (bolalar/bog'liqlar oldin, ota-onalar keyin).
 # Item jadvallari FK CASCADE bilan o'chadi — bu yerda ular yo'q.
@@ -106,31 +210,45 @@ async def seed(count: int) -> None:
     async with engine.begin() as conn:
         await _ensure_manifest(conn)
 
+    # ---- Miqdorlar (default count=30 -> "Katta" realistik to'plam) ----
+    n_reps = count                       # med vakil (MANAGER) ~30
+    n_doctors = count * 4                # ~120
+    n_pharmacies = count * 3             # ~90
+    n_lpus = max(14, count * 4 // 3)     # ~40
+    n_wholesalers = max(6, count // 3)   # ~10
+    n_sales = count * 5                  # ~150
+    n_extra_tx = count * 3               # ~90
+    n_wh = count * 2                     # ~60
+    n_wi = count * 3 // 2                # ~45
+    n_reports = count * 6                # ~180
+    n_fins = count                       # ~30
+
     tr = Tracker()
     async with AsyncSessionLocal() as s:
-        # ---------- Regionlar ----------
-        regions = [Region(name=f"{DEMO_TAG} Регион {i+1}") for i in range(count)]
+        # ---------- Regionlar (haqiqiy viloyatlar) ----------
+        regions = [Region(name=v) for v in VILOYATS]
         s.add_all(regions)
         await s.flush()
         tr.add_all("regions", regions)
 
-        # ---------- Xodimlar (turli rollar) ----------
-        staff_roles = [
-            Role.TOP_MANAGER, Role.PRODUCT_MANAGER, Role.REGIONAL_MANAGER,
-            Role.MANAGER, Role.OPERATOR, Role.PHARMACY,
-        ]
+        # ---------- Xodimlar (realistik org tuzilma) ----------
+        def _mk_user(role, region_id=None):
+            return User(
+                full_name=_person_name(), role=role, region_id=region_id,
+                phone_number=_phone(), ball_balance=RNG.randint(0, 5000), is_active=True,
+            )
+
         users = []
-        for i in range(count):
-            role = staff_roles[i % len(staff_roles)]
-            reg = RNG.choice(regions) if role in {Role.REGIONAL_MANAGER, Role.MANAGER, Role.OPERATOR} else None
-            users.append(User(
-                full_name=f"{DEMO_TAG} {role.value.title()} {i+1}",
-                role=role,
-                region_id=reg.id if reg else None,
-                phone_number=f"9{RNG.randint(700000000, 999999999)}",
-                ball_balance=RNG.randint(0, 5000),
-                is_active=True,
-            ))
+        for _ in range(2):
+            users.append(_mk_user(Role.TOP_MANAGER))
+        for _ in range(2):
+            users.append(_mk_user(Role.PRODUCT_MANAGER))
+        for reg in regions:                          # har regionga 1 ta regional menejer
+            users.append(_mk_user(Role.REGIONAL_MANAGER, reg.id))
+        for i in range(n_reps):                      # med vakillar, regionlarga taqsimlanadi
+            users.append(_mk_user(Role.MANAGER, regions[i % len(regions)].id))
+        for _ in range(max(3, len(regions) // 3)):   # operatorlar
+            users.append(_mk_user(Role.OPERATOR, RNG.choice(regions).id))
         s.add_all(users)
         await s.flush()
         tr.add_all("users", users)
@@ -138,11 +256,11 @@ async def seed(count: int) -> None:
 
         # ---------- ЛПУ ----------
         lpus = []
-        for i in range(count):
+        for i in range(n_lpus):
             reg = RNG.choice(regions)
             lpus.append(Lpu(
-                name=f"{DEMO_TAG} Клиника {i+1}",
-                address=f"Демо кўча {i+1}",
+                name=_clinic_name(reg.name),
+                address=_address(reg.name),
                 region_id=reg.id,
                 created_by_id=RNG.choice(managers).id,
                 approval_status=RNG.choice([ApprovalStatus.APPROVED, ApprovalStatus.APPROVED, ApprovalStatus.PENDING]),
@@ -151,12 +269,14 @@ async def seed(count: int) -> None:
         await s.flush()
         tr.add_all("lpus", lpus)
 
-        # ---------- Dorilar ----------
+        # ---------- Dorilar (haqiqiy nomlar) ----------
+        drug_names = DRUG_NAMES[:]
+        RNG.shuffle(drug_names)
         drugs = []
-        for i in range(count):
+        for name in drug_names:
             p100 = Decimal(RNG.randint(20, 400) * 1000)
             drugs.append(Drug(
-                name=f"{DEMO_TAG} Препарат {i+1}",
+                name=name,
                 price_100=p100,
                 price_50=p100 * Decimal("1.1"),
                 price=p100,
@@ -172,24 +292,24 @@ async def seed(count: int) -> None:
 
         # ---------- Optomlar ----------
         wholesalers = [Wholesaler(
-            name=f"{DEMO_TAG} Оптом {i+1}",
-            inn=f"{RNG.randint(100000000, 999999999)}",
-            phone_number=f"9{RNG.randint(700000000, 999999999)}",
+            name=f"«{RNG.choice(PHARM_BRANDS)}» оптом склад",
+            inn=_inn(),
+            phone_number=_phone(),
             created_by_id=managers[0].id,
-        ) for i in range(count)]
+        ) for _ in range(n_wholesalers)]
         s.add_all(wholesalers)
         await s.flush()
         tr.add_all("wholesalers", wholesalers)
 
         # ---------- Doktorlar (kategoriya A/B/C uchun sotuv turlicha) ----------
         doctors = []
-        for i in range(count):
+        for i in range(n_doctors):
             reg = RNG.choice(regions)
             lpu = RNG.choice([l for l in lpus if l.region_id == reg.id] or lpus)
             doctors.append(Doctor(
-                full_name=f"{DEMO_TAG} Доктор {i+1}",
-                phone_number=f"9{RNG.randint(700000000, 999999999)}",
-                location_text=f"Демо манзил {i+1}",
+                full_name=_person_name(),
+                phone_number=_phone(),
+                location_text=_address(reg.name),
                 manager_id=RNG.choice(managers).id,
                 region_id=reg.id,
                 lpu_id=lpu.id,
@@ -203,14 +323,14 @@ async def seed(count: int) -> None:
 
         # ---------- Dorixonalar ----------
         pharmacies = []
-        for i in range(count):
+        for i in range(n_pharmacies):
             reg = RNG.choice(regions)
             pharmacies.append(Pharmacy(
-                name=f"{DEMO_TAG} Дорихона {i+1}",
-                inn=f"{RNG.randint(100000000, 999999999)}",
-                phone_number=f"9{RNG.randint(700000000, 999999999)}",
-                location_text=f"Демо кўча {i+1}",
-                responsible_person=f"Масъул {i+1}",
+                name=_pharmacy_name(reg.name),
+                inn=_inn(),
+                phone_number=_phone(),
+                location_text=_address(reg.name),
+                responsible_person=_person_name(),
                 manager_id=RNG.choice(managers).id,
                 region_id=reg.id,
                 ball_balance=RNG.randint(0, 2000),
@@ -223,8 +343,9 @@ async def seed(count: int) -> None:
         appr_doc = [d for d in doctors if d.approval_status == ApprovalStatus.APPROVED] or doctors
 
         # ---------- Shartnomalar ----------
+        n_contracts = max(1, len(appr_ph) * 2 // 3)
         contracts = []
-        for i in range(count):
+        for i in range(n_contracts):
             ph = RNG.choice(pharmacies)
             contracts.append(Contract(
                 pharmacy_id=ph.id,
@@ -238,10 +359,9 @@ async def seed(count: int) -> None:
 
         # ---------- Dorixona qoldig'i ----------
         stocks = []
-        for ph in appr_ph[:count]:
+        for ph in appr_ph:
             for drug in RNG.sample(drugs, k=min(3, len(drugs))):
                 stocks.append(dict(pharmacy_id=ph.id, drug_id=drug.id, quantity=RNG.randint(10, 300)))
-        # PharmacyStock modelini import qilmasdan raw emas — modeldan foydalanamiz.
         from app.db.models import PharmacyStock
         stock_objs = [PharmacyStock(**st) for st in stocks]
         s.add_all(stock_objs)
@@ -251,7 +371,7 @@ async def seed(count: int) -> None:
         # ---------- Sotuvlar (+ SaleItem + SALE_DEDUCT tranzaksiya) ----------
         sales = []
         sale_ball_tx = []
-        for i in range(count):
+        for i in range(n_sales):
             rep = RNG.choice(managers)
             ph = RNG.choice(appr_ph)
             doc = RNG.choice(appr_doc)
@@ -285,7 +405,7 @@ async def seed(count: int) -> None:
 
         # ---------- Qo'shimcha ball tranzaksiyalari (MINT/TRANSFER/GIFT) ----------
         extra_tx = []
-        for i in range(count):
+        for i in range(n_extra_tx):
             kind = RNG.choice([BallTxKind.TRANSFER, BallTxKind.GIFT, BallTxKind.MINT])
             status = RNG.choice([BallTxStatus.ACCEPTED, BallTxStatus.ACCEPTED, BallTxStatus.PENDING, BallTxStatus.REJECTED])
             extra_tx.append(BallTransaction(
@@ -300,7 +420,7 @@ async def seed(count: int) -> None:
         tr.add_all("ball_transactions", extra_tx)
 
         # ---------- Doktor kategoriyasi spread (A/B/C teng ko'rinsin) ----------
-        # Bot belgisi OXIRGI 30 KUN savdo tezligiga qarab: >=1000/10kun A, 500-1000 B, <500 C.
+        # Bot belgisi OXIRGI 30 KUN savdo tezligiga qarab: >=3000 A, 1500-3000 B, <1500 C.
         # Uchdan bir A, uchdan bir B, uchdan bir C bo'lishi uchun oxirgi 28 kunga
         # boshqariladigan SALE_DEDUCT tranzaksiyalar qo'shamiz.
         cat_tx = []
@@ -326,7 +446,7 @@ async def seed(count: int) -> None:
 
         # ---------- Складга заявкалар (+ items) ----------
         wh_reqs = []
-        for i in range(count):
+        for i in range(n_wh):
             ph = RNG.choice(appr_ph)
             req = WarehouseRequest(
                 rep_id=RNG.choice(managers).id, pharmacy_id=ph.id,
@@ -348,7 +468,7 @@ async def seed(count: int) -> None:
 
         # ---------- Оптомдан приходлар (+ items) ----------
         wi_incomes = []
-        for i in range(count):
+        for i in range(n_wi):
             inc = WholesaleIncome(
                 rep_id=RNG.choice(managers).id, pharmacy_id=RNG.choice(appr_ph).id,
                 wholesaler_id=RNG.choice(wholesalers).id,
@@ -366,7 +486,7 @@ async def seed(count: int) -> None:
 
         # ---------- Kundalik hisobotlar ----------
         reports = []
-        for i in range(count):
+        for i in range(n_reports):
             ttype = RNG.choice(["doctor", "pharmacy"])
             doc = RNG.choice(doctors)
             ph = RNG.choice(pharmacies)
@@ -376,17 +496,16 @@ async def seed(count: int) -> None:
                 target_name=(doc.full_name if ttype == "doctor" else ph.name),
                 doctor_id=doc.id if ttype == "doctor" else None,
                 pharmacy_id=ph.id if ttype == "pharmacy" else None,
-                text=f"{DEMO_TAG} Ташриф изоҳи {i+1}",
+                text=RNG.choice(VISIT_NOTES),
                 created_at=_days_ago(RNG.randint(0, 60)),
             ))
         s.add_all(reports)
         await s.flush()
         tr.add_all("daily_reports", reports)
 
-        # ---------- Oyliklar ----------
+        # ---------- Oyliklar (har xodimga bittadan) ----------
         salaries = []
-        for i in range(count):
-            u = RNG.choice(users)
+        for u in users:
             base = Decimal(RNG.randint(2000, 8000) * 1000)
             bonus = Decimal(RNG.randint(0, 3000) * 1000)
             penalty = Decimal(RNG.randint(0, 500) * 1000)
@@ -400,11 +519,11 @@ async def seed(count: int) -> None:
 
         # ---------- Moliya operatsiyalari ----------
         fins = []
-        for i in range(count):
+        for i in range(n_fins):
             fins.append(FinanceOperation(
                 operation_type=RNG.choice(list(FinanceType)),
                 amount=Decimal(RNG.randint(100, 9000) * 1000),
-                title=f"{DEMO_TAG} Операция {i+1}",
+                title=RNG.choice(FIN_TITLES),
                 created_by_id=RNG.choice(users).id,
                 created_at=_days_ago(RNG.randint(0, 90)),
             ))
@@ -449,7 +568,7 @@ async def clear() -> None:
             print(f"   {table:22} -{res.rowcount}")
         await s.execute(text("DELETE FROM demo_records"))
         await s.commit()
-    print(f"🧹 Demo ma'lumot o'chirildi (jami {total} yozuv). Real ma'lumotга tegilmadi.")
+    print(f"🧹 Demo ma'lumot o'chirildi (jami {total} yozuv). Real ma'lumotга tegилmadi.")
 
 
 async def status() -> None:
