@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.models import (
     ApprovalStatus,
@@ -225,11 +225,18 @@ async def seed(count: int) -> None:
 
     tr = Tracker()
     async with AsyncSessionLocal() as s:
-        # ---------- Regionlar (haqiqiy viloyatlar) ----------
-        regions = [Region(name=v) for v in VILOYATS]
-        s.add_all(regions)
-        await s.flush()
-        tr.add_all("regions", regions)
+        # ---------- Regionlar (haqiqiy viloyatlar; MAVJUDLARINI qayta ishlatamiz) ----------
+        # regions.name UNIQUE — real region (masalan "Бухоро") bo'lsa, uni QAYTA yaratmaymiz,
+        # balki ishlatamiz. Faqat YANGI yaratilganlar manifestga tushadi (clear real'ga tegmaydi).
+        existing = {
+            r.name: r for r in (await s.execute(select(Region).where(Region.name.in_(VILOYATS)))).scalars()
+        }
+        new_regions = [Region(name=v) for v in VILOYATS if v not in existing]
+        if new_regions:
+            s.add_all(new_regions)
+            await s.flush()
+            tr.add_all("regions", new_regions)
+        regions = list(existing.values()) + new_regions
 
         # ---------- Xodimlar (realistik org tuzilma) ----------
         def _mk_user(role, region_id=None):
